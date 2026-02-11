@@ -61,18 +61,35 @@ async def launch_user(user, extension_path: Path, stop_evt: asyncio.Event):
 
     print(f"[fleet] launching {name} with proxy={user.get('proxy') or 'none'}")
 
-    browser = AsyncCamoufox(
-        headless=False,
-        block_images=False,
-        disable_coop=True,
-        geoip=bool(proxy),
-        i_know_what_im_doing=True,
-        exclude_addons=[DefaultAddons.UBO],
-        addons=[str(extension_path)],
-        proxy=proxy,
-    )
+    base_browser_kwargs = {
+        "headless": False,
+        "block_images": False,
+        "disable_coop": True,
+        "i_know_what_im_doing": True,
+        "exclude_addons": [DefaultAddons.UBO],
+        "addons": [str(extension_path)],
+        "proxy": proxy,
+    }
 
-    instance = await browser.start()
+    try:
+        instance = await AsyncCamoufox(
+            geoip=bool(proxy),
+            **base_browser_kwargs,
+        ).start()
+    except Exception as exc:
+        msg = str(exc).lower()
+        missing_geoip_extra = "camoufox[geoip]" in msg or "geoip extra" in msg
+        if not missing_geoip_extra:
+            raise
+
+        print(
+            f"[fleet] warning: camoufox[geoip] is not installed for {name}; retrying with geoip disabled"
+        )
+        instance = await AsyncCamoufox(
+            geoip=False,
+            **base_browser_kwargs,
+        ).start()
+
     context = await instance.new_context()
 
     if cookies:
