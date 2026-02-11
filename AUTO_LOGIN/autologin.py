@@ -3,6 +3,8 @@ import sys
 import pathlib
 import os
 import json
+import shutil
+import tempfile
 import httpx
 import random
 import sqlite3
@@ -174,6 +176,20 @@ def to_browser_proxy(proxy_url: str) -> dict:
     return proxy_cfg
 
 
+def prepare_firefox_extension(base_extension_path: pathlib.Path) -> pathlib.Path:
+    manifest_v2 = base_extension_path / "manifest_v2.json"
+    if not manifest_v2.exists():
+        return base_extension_path
+
+    staged_extension = pathlib.Path(tempfile.gettempdir()) / "wplacer-firefox-addon" / "LOAD_UNPACKED"
+    if staged_extension.parent.exists():
+        shutil.rmtree(staged_extension.parent, ignore_errors=True)
+
+    shutil.copytree(base_extension_path, staged_extension)
+    shutil.copy2(manifest_v2, staged_extension / "manifest.json")
+    return staged_extension
+
+
 # ===================== GOOGLE LOGIN HELPERS (ASYNC) =====================
 async def find_visible_element_in_frames(page: Page, selector: str):
     """Robustly finds a VISIBLE element on the main page or in any iframe."""
@@ -258,10 +274,12 @@ async def login_once(email, password, recovery_email=None, proxy=None):
         raise ValueError("A proxy must be provided for account login")
 
     session_path = SESSIONS_DIR / f"{email}.session.json"
-    extension_path = pathlib.Path(__file__).resolve().parent.parent / "LOAD_UNPACKED"
+    base_extension_path = pathlib.Path(__file__).resolve().parent.parent / "LOAD_UNPACKED"
 
-    if not extension_path.exists():
-        raise FileNotFoundError(f"Extension folder not found: {extension_path}")
+    if not base_extension_path.exists():
+        raise FileNotFoundError(f"Extension folder not found: {base_extension_path}")
+
+    extension_path = prepare_firefox_extension(base_extension_path)
 
     browser_proxy = to_browser_proxy(proxy)
     

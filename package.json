@@ -7,7 +7,9 @@
   "license": "AGPL-3.0-only",
   "funding": "https://ko-fi.com/jinxthecat and https://ko-fi.com/luluwaffless",
   "scripts": {
-    "start": "node --env-file=.env ."
+    "start": "node --env-file=.env .",
+    "build:ui": "esbuild src/index.ts --bundle --format=iife --outfile=public/scripts/index.js",
+    "typecheck:ui": "tsc --noEmit --project tsconfig.json"
   },
   "dependencies": {
     "canvas": "^3.2.0",
@@ -23,8 +25,8 @@
     "npm": ">=10.0.0"
   },
   "devDependencies": {
-    "prettier": "^3.6.2"
+    "prettier": "^3.6.2",
+    "esbuild": "^0.25.9",
+    "typescript": "^5.9.2"
   }
 }
-
-

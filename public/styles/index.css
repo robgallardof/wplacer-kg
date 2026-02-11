@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
 
 :root {
     --background-primary: #090b1a;
@@ -14,7 +14,22 @@
     --error-color: #ef4444;
     --destructive-color: #2b2f4a;
     --destructive-hover: #3a4066;
-    --font-family: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+    --font-family: "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+    --icon-filter: brightness(0) invert(1);
+}
+
+:root[data-theme="light"] {
+    --background-primary: #f7f9ff;
+    --background-secondary: #ffffff;
+    --background-tertiary: #eef2ff;
+    --accent-primary: #4a63d9;
+    --accent-hover: #3a4fb4;
+    --text-primary: #0f172a;
+    --text-secondary: #1e293b;
+    --border-color: #cbd5e1;
+    --destructive-color: #e2e8f0;
+    --destructive-hover: #cbd5e1;
+    --icon-filter: brightness(0) saturate(100%) invert(10%) sepia(22%) saturate(1150%) hue-rotate(188deg) brightness(94%) contrast(92%);
 }
 
 body {
@@ -67,6 +82,40 @@ h1 img {
     margin-bottom: 16px;
 }
 
+
+.header-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.header-select {
+    width: auto;
+    min-width: 74px;
+    margin-bottom: 0;
+    padding: 8px 10px;
+}
+
+.compact-button {
+    width: auto;
+    margin-bottom: 0;
+    padding: 8px 12px;
+    font-size: 0.9rem;
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
+}
+
 .app-subtitle {
     margin: 0;
     color: var(--text-secondary);
@@ -105,7 +154,7 @@ h2.section-title {
 
 p.credits {
     margin-top: 24px;
-    color: var(--text-secondary);
+    color: var(--text-primary);
 }
 
 p.credits a {
@@ -172,7 +221,7 @@ p.credits a img {
     margin-left: 10px;
 }
 .logs-placeholder {
-    color: var(--text-secondary);
+    color: var(--text-primary);
 }
 .log-line {
     display: block;
@@ -211,7 +260,7 @@ button {
 button img {
     width: 1.5em;
     height: 1.5em;
-    filter: brightness(0) invert(1);
+    filter: var(--icon-filter);
 }
 
 button:disabled, button[disabled] {
@@ -253,15 +302,47 @@ button:disabled, button[disabled] {
     border-color: hsl(0, 0%, 40%);
 }
 
+
+
+.main-camoufox-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+}
+
+.main-camoufox-actions .secondary-button {
+    width: auto;
+    margin-bottom: 0;
+}
+
+.section-top-actions {
+    display: none;
+}
+
 #main {
+    position: sticky;
+    top: 10px;
+    z-index: 30;
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 12px;
-    margin-bottom: 8px;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: rgba(9, 11, 26, 0.86);
+    backdrop-filter: blur(6px);
 }
 
 #main button {
     margin-bottom: 0;
+    min-height: 44px;
+}
+
+#main button.menu-button-active {
+    background-color: var(--accent-hover);
+    border-color: #8d7bff;
 }
 
 input, select {
@@ -654,7 +735,7 @@ input:checked + .slider:before {
 .info-box {
     background-color: rgba(64, 147, 228, 0.15);
     border: 1px solid rgba(64, 147, 228, 0.4);
-    color: var(--text-secondary);
+    color: var(--text-primary);
 }
 
 .info-box a {
@@ -666,10 +747,14 @@ input:checked + .slider:before {
     text-decoration: underline;
 }
 
+:root[data-theme="light"] .info-box a {
+    color: #1d4ed8;
+}
+
 .warning-box {
     background-color: rgba(255, 153, 0, 0.1);
     border: 1px solid var(--warning-color);
-    color: var(--text-secondary);
+    color: var(--text-primary);
 }
 
 .color-grid {
@@ -807,6 +892,10 @@ input:checked + .slider:before {
 }
 
 @media (max-width: 768px) {
+    #main {
+        position: static;
+    }
+
     body {
         padding: 10px;
     }

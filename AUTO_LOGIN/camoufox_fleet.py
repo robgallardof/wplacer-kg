@@ -2,7 +2,9 @@
 import argparse
 import asyncio
 import json
+import shutil
 import signal
+import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -39,6 +41,18 @@ def normalize_cookie(cookie):
     }
 
 
+def prepare_firefox_extension(base_extension_path: Path) -> tuple[Path, tempfile.TemporaryDirectory | None]:
+    manifest_v2 = base_extension_path / "manifest_v2.json"
+    if not manifest_v2.exists():
+        return base_extension_path, None
+
+    temp_dir = tempfile.TemporaryDirectory(prefix="wplacer-firefox-addon-")
+    staged_extension = Path(temp_dir.name) / "LOAD_UNPACKED"
+    shutil.copytree(base_extension_path, staged_extension)
+    shutil.copy2(manifest_v2, staged_extension / "manifest.json")
+    return staged_extension, temp_dir
+
+
 async def launch_user(user, extension_path: Path, stop_evt: asyncio.Event):
     name = user.get("name") or user.get("userId")
     proxy = parse_proxy(user.get("proxy"))
@@ -73,9 +87,11 @@ async def launch_user(user, extension_path: Path, stop_evt: asyncio.Event):
 
 
 async def run(payload_path: Path):
-    extension_path = Path(__file__).resolve().parent.parent / "LOAD_UNPACKED"
-    if not extension_path.exists():
-        raise FileNotFoundError(f"Extension folder not found: {extension_path}")
+    base_extension_path = Path(__file__).resolve().parent.parent / "LOAD_UNPACKED"
+    if not base_extension_path.exists():
+        raise FileNotFoundError(f"Extension folder not found: {base_extension_path}")
+
+    extension_path, staged_dir = prepare_firefox_extension(base_extension_path)
 
     payload = json.loads(payload_path.read_text(encoding="utf-8"))
     users = payload.get("users", [])
@@ -95,17 +111,21 @@ async def run(payload_path: Path):
         except NotImplementedError:
             pass
 
-    tasks = [asyncio.create_task(launch_user(user, extension_path, stop_evt)) for user in users]
-    done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
+    try:
+        tasks = [asyncio.create_task(launch_user(user, extension_path, stop_evt)) for user in users]
+        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
 
-    for task in done:
-        exc = task.exception()
-        if exc:
-            print(f"[fleet] error: {exc}")
-            stop_evt.set()
+        for task in done:
+            exc = task.exception()
+            if exc:
+                print(f"[fleet] error: {exc}")
+                stop_evt.set()
 
-    if pending:
-        await asyncio.gather(*pending, return_exceptions=True)
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+    finally:
+        if staged_dir:
+            staged_dir.cleanup()
 
 
 if __name__ == "__main__":

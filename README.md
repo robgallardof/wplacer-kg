@@ -45,9 +45,9 @@ KGlacer is a maintained fork focused on performance and multi-account workflow i
 
 # FAQ and Common Errors 🤔
 ### Browser:
-- **The best supported browser is Brave, which you can get here: <https://brave.com/download/>**
-- Chrome works, but is not reccomended. (zero fingerprint protection - high ban chance)
-- Firefox is not supported.
+- **Camoufox (Firefox-based) is the recommended browser path for AUTO_LOGIN instances.**
+- Chrome is not recommended (zero fingerprint protection - high ban chance).
+- Firefox/Camoufox extension loading is handled automatically for AUTO_LOGIN instances.
   
 ### How to get your JWT token:
 Go to [wplace.live](<https://wplace.live>), login, click anywhere on the map, then press `Ctrl` + `Shift` + `i`, go to `Application`, find the `j` column, then copy the value inside
