@@ -26,15 +26,15 @@ console.log('✅ kglacer: Content script loaded.');
         try {
             return new Promise((resolve) => {
                 chrome.storage.local.get(['enableOverlay'], (result) => {
-                    // Default to true if setting doesn't exist
-                    const enabled = result.enableOverlay !== undefined ? result.enableOverlay : true;
+                    // Default to false so overlay does not open full-screen by default
+                    const enabled = result.enableOverlay !== undefined ? result.enableOverlay : false;
                     console.log('kglacer: Overlay enabled from extension settings:', enabled);
                     resolve(enabled);
                 });
             });
         } catch (e) {
-            console.log('kglacer: Could not check overlay settings, defaulting to enabled', e);
-            return true; // Default to enabled if there's an error
+            console.log('kglacer: Could not check overlay settings, defaulting to disabled', e);
+            return false; // Default to disabled if there's an error
         }
     };
 
@@ -332,12 +332,18 @@ console.log('✅ kglacer: Content script loaded.');
             return;
         }
         
-        // Create and show overlay since it's enabled
+        // Avoid opening the full-screen overlay automatically.
+        if (!forceShow) {
+            createLauncher();
+            return;
+        }
+
+        // Create and show overlay only on explicit user action.
         await createOverlay();
         showOverlay();
     };
 
-    // Show overlay on first load only if enabled and not previously closed this session
+    // Keep launcher available on page load (no auto-open full-screen overlay).
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
             ensureOverlay(false);

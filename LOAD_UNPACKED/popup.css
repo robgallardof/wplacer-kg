@@ -35,8 +35,9 @@
 html,
 body {
     margin: 0;
-    min-width: 20rem;
-    width: min(24rem, 95vw);
+    min-width: 17rem;
+    width: min(21.5rem, 94vw);
+    max-width: 21.5rem;
     font-family: var(--font-family);
     background: var(--background-secondary);
     color: var(--text-primary);
@@ -162,7 +163,7 @@ h3 {
 }
 
 .content {
-    padding: 0.7rem 0.8rem 0.8rem;
+    padding: 0.7rem 0.75rem 0.8rem;
 }
 
 .tab-content { display: none; }
@@ -230,6 +231,16 @@ input[type="number"] {
     color: var(--text-primary);
 }
 
+select {
+    width: 100%;
+    min-height: 2rem;
+    padding: 0.4rem 0.55rem;
+    border-radius: 0.55rem;
+    border: 1px solid var(--border-color);
+    background: var(--background-secondary);
+    color: var(--text-primary);
+}
+
 .settings-toggle {
     display: flex;
     align-items: flex-start;
@@ -262,5 +273,15 @@ input[type="checkbox"] {
     .status-indicator,
     .header {
         padding-inline: 0.6rem;
+    }
+
+    .tab {
+        font-size: 0.8rem;
+        padding: 0.45rem;
+    }
+
+    button {
+        font-size: 0.82rem;
+        min-height: 2.15rem;
     }
 }

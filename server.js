@@ -656,14 +656,31 @@ class WPlacer {
         const jar = buildCookieJarFromInput(this.cookies);
         const sleepTime = Math.floor(Math.random() * MS.TWO_SEC) + MS.QUARTER_SEC;
         await sleep(sleepTime);
-        const opts = { cookieJar: jar, browser: 'chrome', ignoreTlsErrors: true };
+
+        const buildBrowser = (proxyUrl = null) => {
+            const opts = { cookieJar: jar, browser: 'chrome', ignoreTlsErrors: true };
+            if (proxyUrl) {
+                opts.proxyUrl = proxyUrl;
+                if (currentSettings.logProxyUsage) log('SYSTEM', 'wplacer', `Using proxy: ${proxyUrl.split('@').pop()}`);
+            }
+            return new Impit(opts);
+        };
+
         const proxyUrl = getNextProxy();
-        if (proxyUrl) {
-            opts.proxyUrl = proxyUrl;
-            if (currentSettings.logProxyUsage) log('SYSTEM', 'wplacer', `Using proxy: ${proxyUrl.split('@').pop()}`);
+        this.browser = buildBrowser(proxyUrl);
+
+        try {
+            await this.loadUserInfo();
+        } catch (error) {
+            const message = String(error?.message || '').toLowerCase();
+            const isInvalidIp = message.includes('client_connect_invalid_ip');
+            if (!proxyUrl || !isInvalidIp) throw error;
+
+            log('SYSTEM', 'wplacer', '⚠️ Detected client_connect_invalid_ip while using proxy. Retrying login without proxy.');
+            this.browser = buildBrowser(null);
+            await this.loadUserInfo();
         }
-        this.browser = new Impit(opts);
-        await this.loadUserInfo();
+
         return this.userInfo;
     }
 
@@ -2806,17 +2823,14 @@ const diffVer = (v1, v2) => {
 (async () => {
     console.clear();
     const version = JSON.parse(readFileSync('package.json', 'utf8')).version;
-    console.log(gradient(["#EF8F20", "#CB3D27", "#A82421"])(`                           ████
-                          ▒▒███
- █████ ███ █████ ████████  ▒███   ██████    ██████   ██████  ████████
-▒▒███ ▒███▒▒███ ▒▒███▒▒███ ▒███  ▒▒▒▒▒███  ███▒▒███ ███▒▒███▒▒███▒▒███
- ▒███ ▒███ ▒███  ▒███ ▒███ ▒███   ███████ ▒███ ▒▒▒ ▒███████  ▒███ ▒▒▒
- ▒▒███████████   ▒███ ▒███ ▒███  ███▒▒███ ▒███  ███▒███▒▒▒   ▒███
-  ▒▒████▒████    ▒███████  █████▒▒████████▒▒██████ ▒▒██████  █████
-   ▒▒▒▒ ▒▒▒▒     ▒███▒▒▒  ▒▒▒▒▒  ▒▒▒▒▒▒▒▒  ▒▒▒▒▒▒   ▒▒▒▒▒▒  ▒▒▒▒▒
-                 ▒███
-                 █████
-                ▒▒▒▒▒                                          v${version}`));
+    console.log(gradient(["#5B7CFA", "#4A63D9", "#2947BE"])(`╔═════════════════════════════════╗
+║ _  _____      _                 ║
+║| |/ / __|_ __| |__ _ __ ___ _ _ ║
+║| ' < (_ | '_ \\ / _\` / _/ -_) '_|║
+║|_|\\_\\___| .__/_\\__,_\\__\\___|_|  ║
+║         |_|                     ║
+╚═════════════════════════════════╝
+              v${version}`));
     // check versions (dont delete this ffs)
     try {
         const githubPackage = await fetch("https://raw.githubusercontent.com/wplacer/wplacer/refs/heads/main/package.json");
