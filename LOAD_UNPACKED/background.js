@@ -21,15 +21,43 @@ const getSettings = async () => {
     
     return {
         port: result.kglacerPort || result.wplacerPort || 80,
-        host: '127.0.0.1',
+        host: result.wplacerHost || 'localhost',
         autoReload: autoReloadEnabled,
         autoClear: autoClearEnabled
     };
 };
 
-const getServerUrl = async (path = '') => {
+const getServerUrls = async (path = '') => {
     const { host, port } = await getSettings();
-    return `http://${host}:${port}${path}`;
+    const normalizedHost = host === '127.0.0.1' ? 'localhost' : host;
+
+    const candidateHosts = Array.from(new Set([
+        normalizedHost,
+        'localhost',
+        '127.0.0.1'
+    ]));
+
+    return candidateHosts.map((candidate) => `http://${candidate}:${port}${path}`);
+};
+
+const fetchFromLocalServer = async (path, options = {}) => {
+    const urls = await getServerUrls(path);
+    let lastError = null;
+
+    for (const url of urls) {
+        try {
+            const response = await fetch(url, options);
+            if (response.ok || response.status < 500) {
+                return response;
+            }
+            lastError = new Error(`Server responded with status: ${response.status} (${url})`);
+        } catch (error) {
+            lastError = error;
+            console.warn(`kglacer: Connection failed for ${url}: ${error.message}`);
+        }
+    }
+
+    throw lastError || new Error('Could not connect to local server.');
 };
 
 // --- Token Refresh Logic ---
@@ -39,8 +67,7 @@ const pollForTokenRequest = async () => {
         // Get latest settings
         const settings = await getSettings();
         
-        const url = await getServerUrl("/token-needed");
-        const response = await fetch(url, {
+        const response = await fetchFromLocalServer("/token-needed", {
             method: 'GET',
             headers: {
                 'Cache-Control': 'no-cache',
@@ -220,10 +247,8 @@ const sendCookie = async (callback) => {
 
     const cookies = { j: jCookie.value };
     if (sCookie) cookies.s = sCookie.value;
-    const url = await getServerUrl("/user");
-
     try {
-        const response = await fetch(url, {
+        const response = await fetchFromLocalServer("/user", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ cookies, expirationDate: jCookie.expirationDate })

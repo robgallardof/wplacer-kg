@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const toggleOverlayText = document.getElementById('toggleOverlayText');
     const autoReloadCheckbox = document.getElementById('autoReload');
     const autoClearCheckbox = document.getElementById('autoClear');
+    const themeToggleBtn = document.getElementById('themeToggleBtn');
     // Removed enableOverlayCheckbox since we're not using it in settings tab anymore
     const tabs = document.querySelectorAll('.tab');
     const tabContents = document.querySelectorAll('.tab-content');
@@ -18,8 +19,24 @@ document.addEventListener('DOMContentLoaded', () => {
     let initialPort = 80;
     let tokenWaitingStatus = false;
 
+    const getPreferredTheme = () => {
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+            return 'light';
+        }
+        return 'dark';
+    };
+
+    const applyTheme = (theme) => {
+        document.documentElement.setAttribute('data-theme', theme);
+        const icon = themeToggleBtn?.querySelector('i');
+        if (icon) {
+            icon.className = theme === 'light' ? 'fas fa-moon' : 'fas fa-sun';
+        }
+    };
+
+
     // Load current settings
-    chrome.storage.local.get(['kglacerPort', 'wplacerPort', 'autoReload', 'autoClear', 'enableOverlay'], (result) => {
+    chrome.storage.local.get(['kglacerPort', 'wplacerPort', 'autoReload', 'autoClear', 'enableOverlay', 'popupTheme'], (result) => {
         initialPort = result.kglacerPort || result.wplacerPort || 80;
         portInput.value = initialPort;
         
@@ -30,6 +47,8 @@ document.addEventListener('DOMContentLoaded', () => {
         
         autoReloadCheckbox.checked = autoReload;
         autoClearCheckbox.checked = autoClear;
+
+        applyTheme(result.popupTheme || getPreferredTheme());
         // Removed enableOverlayCheckbox.checked assignment
         
         // Update toggle overlay button text based on current setting
@@ -74,6 +93,14 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
     
+
+    themeToggleBtn?.addEventListener('click', () => {
+        const currentTheme = document.documentElement.getAttribute('data-theme') || getPreferredTheme();
+        const nextTheme = currentTheme === 'light' ? 'dark' : 'light';
+        applyTheme(nextTheme);
+        chrome.storage.local.set({ popupTheme: nextTheme });
+    });
+
     // Tab switching functionality
     tabs.forEach(tab => {
         tab.addEventListener('click', () => {

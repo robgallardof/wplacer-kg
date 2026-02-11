@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "KGlacer Companion",
-  "version": "4.4",
+  "version": "4.5",
   "description": "Keeps KGlacer connected to wplace.live and your local paint server.",
   "permissions": [
     "storage",
@@ -12,9 +12,11 @@
     "tabs"
   ],
   "host_permissions": [
-    "https://wplace.live/",
+    "http://127.0.0.1/*",
+    "http://[::1]/*",
+    "http://localhost/*",
     "https://backend.wplace.live/",
-    "http://127.0.0.1/*"
+    "https://wplace.live/"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -39,8 +41,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": [
-      ],
+      "resources": [],
       "matches": [
         "https://wplace.live/*"
       ]
