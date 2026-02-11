@@ -9,7 +9,7 @@ import httpx
 import random
 import sqlite3
 from urllib.parse import urlparse
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 
 from camoufox.async_api import AsyncCamoufox
 from playwright.async_api import TimeoutError as PWTimeout, Page, BrowserContext
@@ -268,6 +268,28 @@ async def get_solved_token(proxy, api_url="http://localhost:8080/turnstile", tar
     except Exception as e:
         raise RuntimeError(f"An unexpected error occurred in get_solved_token: {e}")
 
+
+@asynccontextmanager
+async def launch_camoufox_with_geoip_fallback(email, **base_kwargs):
+    """
+    Tries to launch Camoufox with geoip enabled first.
+    If the `camoufox[geoip]` extra is not installed, retries with geoip disabled.
+    """
+    try:
+        async with AsyncCamoufox(geoip=True, **base_kwargs) as browser:
+            yield browser
+            return
+    except Exception as exc:
+        msg = str(exc).lower()
+        missing_geoip_extra = "camoufox[geoip]" in msg or "geoip extra" in msg
+        if not missing_geoip_extra:
+            raise
+
+        print(f"[{email}] [WARN] camoufox[geoip] is not installed. Retrying with geoip disabled.")
+
+    async with AsyncCamoufox(geoip=False, **base_kwargs) as browser:
+        yield browser
+
 # ===================== LOGIN (ASYNC) =====================
 async def login_once(email, password, recovery_email=None, proxy=None):
     if not proxy:
@@ -286,7 +308,8 @@ async def login_once(email, password, recovery_email=None, proxy=None):
     print(f"[{email}] 3. Launching browser on YOUR LOCAL IP...")
     custom_fonts = ["Arial", "Helvetica", "Times New Roman"]
     
-    async with AsyncCamoufox(
+    async with launch_camoufox_with_geoip_fallback(
+        email,
         headless=False,
         humanize=True,
         block_images=False,
@@ -296,7 +319,6 @@ async def login_once(email, password, recovery_email=None, proxy=None):
         screen=Screen(min_width=1920, max_width=1920, min_height=1080, max_height=1080),
         fonts=custom_fonts,
         os=["windows", "macos", "linux"],
-        geoip=True,
         i_know_what_im_doing=True
     ) as browser:
         
