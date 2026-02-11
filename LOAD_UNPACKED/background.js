@@ -253,11 +253,24 @@ const sendCookie = async (callback) => {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ cookies, expirationDate: jCookie.expirationDate })
         });
-        if (!response.ok) throw new Error(`Server responded with status: ${response.status}`);
-        const userInfo = await response.json();
-        if (callback) callback({ success: true, name: userInfo.name });
+
+        let payload = null;
+        try {
+            payload = await response.json();
+        } catch {
+            payload = null;
+        }
+
+        if (!response.ok) {
+            const detail = payload?.error || payload?.message || `Server responded with status: ${response.status}`;
+            throw new Error(detail);
+        }
+
+        const userInfo = payload || {};
+        if (callback) callback({ success: true, name: userInfo.name || 'Unknown user' });
     } catch (error) {
-        if (callback) callback({ success: false, error: "Could not connect to the wplacer server." });
+        const msg = String(error?.message || 'Could not connect to the wplacer server.');
+        if (callback) callback({ success: false, error: msg });
     }
 };
 

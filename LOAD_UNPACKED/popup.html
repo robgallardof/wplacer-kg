@@ -22,22 +22,30 @@
     </div>
 
     <div class="tabs">
-        <div class="tab active" data-tab="actions-tab">Actions</div>
-        <div class="tab" data-tab="settings-tab">Settings</div>
+        <div class="tab active" data-tab="actions-tab" data-i18n="tabActions">Actions</div>
+        <div class="tab" data-tab="settings-tab" data-i18n="tabSettings">Settings</div>
     </div>
 
     <div class="content">
         <div id="actions-tab" class="tab-content active">
-            <button id="sendCookieBtn"><i class="fas fa-user-plus"></i> Add/Update User</button>
-            <button id="clearPawtectBtn"><i class="fas fa-broom"></i> Clear Paint Cache</button>
+            <button id="sendCookieBtn"><i class="fas fa-user-plus"></i> <span data-i18n="btnAddUser">Add/Update User</span></button>
+            <button id="clearPawtectBtn"><i class="fas fa-broom"></i> <span data-i18n="btnClearPaintCache">Clear Paint Cache</span></button>
             <button id="toggleOverlayBtn"><i class="fas fa-toggle-on"></i> <span id="toggleOverlayText">Disable Overlay</span></button>
-            <button id="logoutBtn" class="destructive"><i class="fas fa-sign-out-alt"></i> Quick Logout</button>
+            <button id="logoutBtn" class="destructive"><i class="fas fa-sign-out-alt"></i> <span data-i18n="btnQuickLogout">Quick Logout</span></button>
         </div>
 
         <div id="settings-tab" class="tab-content">
             <div class="settings-container">
                 <div class="settings">
-                    <label for="port">Server Port</label>
+                    <label for="languageSelect" data-i18n="labelLanguage">Language</label>
+                    <select id="languageSelect">
+                        <option value="en">English</option>
+                        <option value="es">Español</option>
+                    </select>
+                </div>
+
+                <div class="settings">
+                    <label for="port" data-i18n="labelServerPort">Server Port</label>
                     <input type="number" id="port" min="1" max="65535" value="80">
                 </div>
 
@@ -45,8 +53,8 @@
                     <div class="settings-toggle">
                         <input type="checkbox" id="autoReload" checked>
                         <div>
-                            <label for="autoReload">Auto Reload</label>
-                            <p class="setting-description">Automatically reload when the server requests action.</p>
+                            <label for="autoReload" data-i18n="labelAutoReload">Auto Reload</label>
+                            <p class="setting-description" data-i18n="descAutoReload">Automatically reload when the server requests action.</p>
                         </div>
                     </div>
                 </div>
@@ -55,15 +63,15 @@
                     <div class="settings-toggle">
                         <input type="checkbox" id="autoClear" checked>
                         <div>
-                            <label for="autoClear">Auto Clear Cache</label>
-                            <p class="setting-description">Clear local paint cache if the server waits too long.</p>
+                            <label for="autoClear" data-i18n="labelAutoClear">Auto Clear Cache</label>
+                            <p class="setting-description" data-i18n="descAutoClear">Clear local paint cache if the server waits too long.</p>
                         </div>
                     </div>
                 </div>
 
                 <button id="saveSettingsBtn">
                     <i class="fas fa-save"></i>
-                    <span>Save</span>
+                    <span data-i18n="btnSave">Save</span>
                 </button>
             </div>
         </div>
