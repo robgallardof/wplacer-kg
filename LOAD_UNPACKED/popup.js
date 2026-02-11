@@ -19,8 +19,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let tokenWaitingStatus = false;
 
     // Load current settings
-    chrome.storage.local.get(['wplacerPort', 'autoReload', 'autoClear', 'enableOverlay'], (result) => {
-        initialPort = result.wplacerPort || 80;
+    chrome.storage.local.get(['kglacerPort', 'wplacerPort', 'autoReload', 'autoClear', 'enableOverlay'], (result) => {
+        initialPort = result.kglacerPort || result.wplacerPort || 80;
         portInput.value = initialPort;
         
         // Set auto reload and auto clear settings (default to true if not set)
@@ -97,12 +97,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 statusDot.classList.remove('active');
                 statusDot.classList.add('waiting');
                 tokenWaitingStatus = true;
-                statusEl.textContent = `Waiting for token (${response.waitTime}s)...`;
+                statusEl.textContent = `Waiting for server signal (${response.waitTime}s)...`;
             } else {
                 statusDot.classList.remove('waiting');
                 statusDot.classList.add('active');
                 tokenWaitingStatus = false;
-                statusEl.textContent = 'Ready. Tokens will be sent automatically.';
+                statusEl.textContent = 'Ready. KGlacer is synced with your local server.';
             }
         });
     };
@@ -114,12 +114,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 statusDot.classList.remove('active');
                 statusDot.classList.add('waiting');
                 tokenWaitingStatus = true;
-                statusEl.textContent = `Waiting for token (${message.waitTime}s)...`;
+                statusEl.textContent = `Waiting for server signal (${message.waitTime}s)...`;
             } else {
                 statusDot.classList.remove('waiting');
                 statusDot.classList.add('active');
                 tokenWaitingStatus = false;
-                statusEl.textContent = 'Ready. Tokens will be sent automatically.';
+                statusEl.textContent = 'Ready. KGlacer is synced with your local server.';
             }
         } else if (message.action === "statusUpdate") {
             // Update status message from background script
@@ -150,6 +150,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setButtonLoading(saveBtn, true);
         
         chrome.storage.local.set({ 
+            kglacerPort: port,
             wplacerPort: port,
             autoReload: autoReloadCheckbox.checked,
             autoClear: autoClearCheckbox.checked
@@ -251,7 +252,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Clear Pawtect Cache
     clearPawtectBtn.addEventListener('click', () => {
-        statusEl.textContent = 'Clearing token cache...';
+        statusEl.textContent = 'Clearing paint cache...';
         setButtonLoading(clearPawtectBtn, true);
         
         chrome.runtime.sendMessage({ action: "clearPawtectCache" }, (response) => {
@@ -262,7 +263,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             if (response.success) {
-                statusEl.textContent = 'Token cache cleared successfully.';
+                statusEl.textContent = 'Paint cache cleared successfully.';
                 // Visual feedback for success
                 clearPawtectBtn.style.backgroundColor = 'var(--success-color)';
                 setTimeout(() => {
