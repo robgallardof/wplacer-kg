@@ -879,15 +879,66 @@ class WPlacer {
                 const ax = leftToRight ? a.localX : -a.localX;
                 const bx = leftToRight ? b.localX : -b.localX;
 
-                // Tiny jitter to reduce perfect machine-like regularity.
-                const jitter = (Math.random() - 0.5) * 0.35;
-                return (ax - bx) + jitter;
+                // Tiny deterministic jitter to reduce perfect machine-like regularity
+                // without using a non-stable random comparator.
+                const jitterA = this._pixelNoise(a.localX, a.localY);
+                const jitterB = this._pixelNoise(b.localX, b.localY);
+                return (ax - bx) + (jitterA - jitterB);
             });
 
             out.push(...inBand);
         }
 
         return out;
+    }
+
+    /** Stable pseudo-random value in [-0.5, 0.5) derived from local coordinates. */
+    _pixelNoise(x, y) {
+        const seed = ((x * 73856093) ^ (y * 19349663)) >>> 0;
+        return (seed / 0xffffffff) - 0.5;
+    }
+
+    /**
+     * Hybrid natural + center flow ordering.
+     *
+     * Combines a human-like serpentine sweep with a mild spiral/center preference,
+     * keeping movement natural while still converging around nearby clusters.
+     */
+    _sortHybridNaturalPixels(pixels) {
+        if (pixels.length <= 1) return pixels;
+
+        let minX = Infinity;
+        let maxX = -Infinity;
+        let minY = Infinity;
+        let maxY = -Infinity;
+
+        for (const p of pixels) {
+            if (p.localX < minX) minX = p.localX;
+            if (p.localX > maxX) maxX = p.localX;
+            if (p.localY < minY) minY = p.localY;
+            if (p.localY > maxY) maxY = p.localY;
+        }
+
+        const centerX = (minX + maxX) / 2;
+        const centerY = (minY + maxY) / 2;
+
+        const bandHeight = 5;
+        const withScore = pixels.map((p) => {
+            const band = Math.floor((p.localY - minY) / bandHeight);
+            const leftToRight = band % 2 === 0;
+            const laneX = leftToRight ? p.localX : -p.localX;
+            const dx = p.localX - centerX;
+            const dy = p.localY - centerY;
+            const radial = Math.hypot(dx, dy);
+            const jitter = this._pixelNoise(p.localX, p.localY) * 0.25;
+
+            // Lower score paints earlier.
+            const score = (band * 10000) + (radial * 5) + laneX + jitter;
+            return { p, score };
+        });
+
+        withScore.sort((a, b) => a.score - b.score);
+        return withScore.map((s) => s.p);
     }
 
 
@@ -1069,7 +1120,11 @@ class WPlacer {
                 mismatched = this._sortSpiralPixels(mismatched, true);
                 break;
             case 'natural':
+            case 'natural_legacy':
                 mismatched = this._sortNaturalPixels(mismatched);
+                break;
+            case 'natural_hybrid':
+                mismatched = this._sortHybridNaturalPixels(mismatched);
                 break;
             case 'random': {
                 for (let i = mismatched.length - 1; i > 0; i--) {
