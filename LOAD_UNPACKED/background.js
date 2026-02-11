@@ -10,9 +10,64 @@ let autoReloadEnabled = true;
 let autoClearEnabled = true;
 let isReloading = false; // Prevent multiple simultaneous reloads
 
+const storageGet = (keys) => new Promise((resolve) => chrome.storage.local.get(keys, resolve));
+const queryTabs = (query) => new Promise((resolve) => chrome.tabs.query(query, resolve));
+const sendTabMessage = (tabId, message) => new Promise((resolve, reject) => {
+    chrome.tabs.sendMessage(tabId, message, (response) => {
+        if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+            return;
+        }
+        resolve(response);
+    });
+});
+const reloadTab = (tabId) => new Promise((resolve, reject) => {
+    chrome.tabs.reload(tabId, () => {
+        if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+            return;
+        }
+        resolve();
+    });
+});
+const sendRuntimeMessage = (payload) => {
+    try {
+        const maybePromise = chrome.runtime.sendMessage(payload);
+        if (maybePromise && typeof maybePromise.catch === 'function') {
+            maybePromise.catch(() => {});
+        }
+    } catch {}
+};
+const executeStorageCleanupScript = (tabId) => new Promise((resolve) => {
+    const cleanupFunc = () => {
+        localStorage.removeItem('wplacer_pawtect_path');
+        localStorage.removeItem('wplacerPawtectChunk');
+        window.__wplacerPawtectChunk = null;
+        return true;
+    };
+
+    if (chrome.scripting?.executeScript) {
+        chrome.scripting.executeScript({
+            target: { tabId },
+            world: 'MAIN',
+            func: cleanupFunc
+        }, (results) => {
+            const success = !!(results && results[0] && results[0].result === true);
+            resolve(success);
+        });
+        return;
+    }
+
+    const code = `(${cleanupFunc.toString()})();`;
+    chrome.tabs.executeScript(tabId, { code }, (results) => {
+        const success = !!(results && results[0] === true);
+        resolve(success);
+    });
+});
+
 // --- Core Functions ---
 const getSettings = async () => {
-    const result = await chrome.storage.local.get(['kglacerPort', 'wplacerPort', 'autoReload', 'autoClear']);
+    const result = await storageGet(['kglacerPort', 'wplacerPort', 'autoReload', 'autoClear']);
     // Update global settings
     autoReloadEnabled = result.autoReload !== undefined ? result.autoReload : true;
     autoClearEnabled = result.autoClear !== undefined ? result.autoClear : true;
@@ -60,6 +115,56 @@ const fetchFromLocalServer = async (path, options = {}) => {
     throw lastError || new Error('Could not connect to local server.');
 };
 
+const postTokenToServer = async ({ t, pawtect = null, fp = null }) => {
+    if (!t || typeof t !== 'string') {
+        throw new Error('No valid Turnstile token provided.');
+    }
+
+    const payload = JSON.stringify({ t, pawtect, fp });
+    const endpointCandidates = ['/t', '/token'];
+    let lastError = null;
+
+    for (const endpoint of endpointCandidates) {
+        try {
+            const response = await fetchFromLocalServer(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: payload
+            });
+
+            if (!response.ok) {
+                const detail = await response.text().catch(() => 'unknown server error');
+                throw new Error(`Token delivery failed on ${endpoint} (${response.status}): ${detail}`);
+            }
+
+            return response.json().catch(() => ({ success: true }));
+        } catch (error) {
+            lastError = error;
+            console.warn(`kglacer: Token delivery attempt to ${endpoint} failed:`, error?.message || error);
+        }
+    }
+
+    throw lastError || new Error('Could not deliver token to local server.');
+};
+
+const requestTurnstileToken = async () => {
+    const tabs = await queryTabs({ url: 'https://wplace.live/*' });
+    if (!tabs.length) {
+        console.warn('kglacer: Cannot request token because there are no wplace.live tabs.');
+        return false;
+    }
+
+    const targetTab = tabs.find((t) => t.active) || tabs[0];
+    try {
+        await sendTabMessage(targetTab.id, { action: 'generateTurnstileToken' });
+        console.log(`kglacer: Requested a fresh Turnstile token from tab #${targetTab.id}.`);
+        return true;
+    } catch (error) {
+        console.warn('kglacer: Could not request Turnstile token from page script:', error?.message || error);
+        return false;
+    }
+};
+
 // --- Token Refresh Logic ---
 const pollForTokenRequest = async () => {
     console.log("kglacer: Polling server for token request...");
@@ -85,6 +190,7 @@ const pollForTokenRequest = async () => {
         
         if (data.needed) {
             console.log("kglacer: Server requires a token.");
+            await requestTurnstileToken();
             
             // Start tracking token wait time if not already tracking
             if (!tokenWaitStartTime) {
@@ -92,11 +198,11 @@ const pollForTokenRequest = async () => {
                 console.log("kglacer: Started tracking token wait time.");
                 
                 // Notify popup about token waiting status
-                chrome.runtime.sendMessage({
+                sendRuntimeMessage({
                     action: "tokenStatusChanged",
                     waiting: true,
                     waitTime: 0
-                }).catch(() => {});
+                });
                 
                 // Immediately initiate reload if auto-reload is enabled
                 if (settings.autoReload && !isReloading) {
@@ -111,11 +217,11 @@ const pollForTokenRequest = async () => {
                 console.log(`kglacer: Token still needed. Wait time: ${waitTimeSeconds}s`);
                 
                 // Update popup with current wait time
-                chrome.runtime.sendMessage({
+                sendRuntimeMessage({
                     action: "tokenStatusChanged",
                     waiting: true,
                     waitTime: waitTimeSeconds
-                }).catch(() => {});
+                });
                 
                 // Clear cache if we've been waiting too long and auto-clear is enabled
                 if (waitTime > TOKEN_WAIT_THRESHOLD_MS && settings.autoClear) {
@@ -135,10 +241,10 @@ const pollForTokenRequest = async () => {
                 isReloading = false; // Reset reload flag
                 
                 // Notify popup that token is no longer needed
-                chrome.runtime.sendMessage({
+                sendRuntimeMessage({
                     action: "tokenStatusChanged",
                     waiting: false
-                }).catch(() => {});
+                });
             }
         }
     } catch (error) {
@@ -156,18 +262,18 @@ const initiateReload = async () => {
     
     try {
         // First notify the popup that we're reloading
-        chrome.runtime.sendMessage({ 
+        sendRuntimeMessage({ 
             action: "statusUpdate", 
             status: "Reloading page..."
-        }).catch(() => {});
+        });
         
-        const tabs = await chrome.tabs.query({ url: "https://wplace.live/*" });
+        const tabs = await queryTabs({ url: "https://wplace.live/*" });
         if (tabs.length === 0) {
             console.warn("kglacer: Token requested, but no wplace.live tabs are open.");
-            chrome.runtime.sendMessage({ 
+            sendRuntimeMessage({ 
                 action: "statusUpdate", 
                 status: "No wplace.live tabs found to reload."
-            }).catch(() => {});
+            });
             return;
         }
         
@@ -176,29 +282,29 @@ const initiateReload = async () => {
         
         try {
             // Try to send message to content script first
-            await chrome.tabs.sendMessage(targetTab.id, { action: "reloadForToken" });
+            await sendTabMessage(targetTab.id, { action: "reloadForToken" });
             console.log("kglacer: Reload message sent to content script successfully.");
         } catch (error) {
             // Content script not loaded, use direct reload
             console.log("kglacer: Content script not available, using direct reload.");
-            await chrome.tabs.reload(targetTab.id);
+            await reloadTab(targetTab.id);
         }
         
         // Notify popup that reload is complete
         setTimeout(() => {
-            chrome.runtime.sendMessage({ 
+            sendRuntimeMessage({ 
                 action: "statusUpdate", 
                 status: "Page reloaded successfully."
-            }).catch(() => {});
+            });
             isReloading = false; // Reset reload flag after delay
         }, 3000); // Give more time for page to reload
         
     } catch (error) {
         console.error("kglacer: Error during reload:", error);
-        chrome.runtime.sendMessage({ 
+        sendRuntimeMessage({ 
             action: "statusUpdate", 
             status: "Reload failed: " + error.message
-        }).catch(() => {});
+        });
         isReloading = false;
     }
 };
@@ -281,19 +387,7 @@ const clearPawtectCache = (callback) => {
             if (tabs && tabs.length > 0) {
                 let completedTabs = 0;
                 tabs.forEach(tab => {
-                    chrome.scripting.executeScript({
-                        target: { tabId: tab.id },
-                        world: 'MAIN',
-                        func: () => {
-                            console.log("kglacer: Removing cached pawtect data from localStorage");
-                            // Use consistent cache key name
-                            localStorage.removeItem('wplacer_pawtect_path');
-                            localStorage.removeItem('wplacerPawtectChunk')
-                            window.__wplacerPawtectChunk = null;
-                            return true;
-                        }
-                    }, (results) => {
-                        const success = results && results[0] && results[0].result === true;
+                    executeStorageCleanupScript(tab.id).then((success) => {
                         console.log(`kglacer: Cleared pawtect cache for tab ${tab.id}: ${success ? 'success' : 'failed'}`);
                         chrome.tabs.reload(tab.id);
                         completedTabs++;
@@ -389,9 +483,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     }
 
-    // Cloudflare bypass/token forging logic removed intentionally.
-    if (request.type === 'SEND_TOKEN' || request.action === 'tokenPairReceived' || request.action === 'injectPawtect' || request.action === 'seedPawtect' || request.action === 'computePawtectForT' || request.action === 'applyPawtect') {
-        sendResponse?.({ success: false, error: 'Token bypass flow is disabled in KGlacer extension.' });
+    if (request.type === 'SEND_TOKEN' || request.action === 'tokenPairReceived') {
+        postTokenToServer({ t: request.t || request.token, pawtect: request.pawtect || null, fp: request.fp || null })
+            .then(() => {
+                tokenWaitStartTime = null;
+                isReloading = false;
+                sendResponse?.({ success: true });
+            })
+            .catch((error) => {
+                console.error('kglacer: Failed to deliver token pair to local server:', error?.message || error);
+                sendResponse?.({ success: false, error: error?.message || 'Failed to deliver token pair.' });
+            });
         return true;
     }
 
