@@ -10,9 +10,9 @@ process.on('uncaughtException', (err) => {
     }
     throw err;
 });
-import { existsSync, readFileSync, writeFileSync, mkdirSync, createWriteStream } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, createWriteStream, unlinkSync } from 'node:fs';
 import { Image, createCanvas } from 'canvas';
-import { exec, execSync } from 'node:child_process';
+import { exec, execSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { CookieJar } from 'tough-cookie';
 import gradient from 'gradient-string';
@@ -20,6 +20,8 @@ import express from 'express';
 import { Impit } from 'impit';
 import path from 'node:path';
 import cors from 'cors';
+import os from 'node:os';
+import { randomUUID } from 'node:crypto';
 
 // --- WebSocket for logs ---
 import { WebSocketServer } from 'ws';
@@ -60,6 +62,7 @@ const AUTO_LOGIN_REQUIREMENTS = path.join(AUTO_LOGIN_DIR, 'requirements.txt');
 const AUTO_LOGIN_PROXIES = path.join(AUTO_LOGIN_DIR, 'proxies.txt');
 const AUTO_LOGIN_WEBSHARE_CONFIG = path.join(AUTO_LOGIN_DIR, 'webshare_config.json');
 const AUTO_LOGIN_PROXY_DB = path.join(AUTO_LOGIN_DIR, 'proxy_pool.db');
+const CAMOUFOX_FLEET_SCRIPT = path.join(AUTO_LOGIN_DIR, 'camoufox_fleet.py');
 
 const JSON_LIMIT = '50mb';
 
@@ -387,6 +390,158 @@ const getNextProxy = () => {
     }
     proxyUrl += `${proxy.host}:${proxy.port}`;
     return proxyUrl;
+};
+
+const pickProxyForIndex = (idx) => {
+    if (!currentSettings.proxyEnabled || loadedProxies.length === 0) return null;
+    const selected = currentSettings.proxyRotationMode === 'random'
+        ? loadedProxies[Math.floor(Math.random() * loadedProxies.length)]
+        : loadedProxies[idx % loadedProxies.length];
+
+    let proxyUrl = `${selected.protocol}://`;
+    if (selected.username && selected.password) {
+        proxyUrl += `${encodeURIComponent(selected.username)}:${encodeURIComponent(selected.password)}@`;
+    }
+    proxyUrl += `${selected.host}:${selected.port}`;
+    return proxyUrl;
+};
+
+const makeCamoufoxCookie = (cookie) => {
+    if (!cookie || !cookie.name || !cookie.value) return null;
+    const nowInSeconds = Math.floor(Date.now() / 1000);
+    let expires = Number.isFinite(cookie.expirationDate)
+        ? Math.floor(cookie.expirationDate > 10_000_000_000 ? cookie.expirationDate / 1000 : cookie.expirationDate)
+        : nowInSeconds + 365 * 24 * 60 * 60;
+
+    if (expires <= nowInSeconds) expires = nowInSeconds + 365 * 24 * 60 * 60;
+
+    return {
+        name: String(cookie.name),
+        value: String(cookie.value),
+        domain: cookie.domain || '.wplace.live',
+        path: cookie.path || '/',
+        secure: cookie.secure !== false,
+        httpOnly: cookie.httpOnly !== false,
+        sameSite: cookie.sameSite || 'Lax',
+        expires,
+    };
+};
+
+const makeCamoufoxFleetPayload = (userIds) => {
+    const unique = [...new Set(userIds)].filter((uid) => users[uid]);
+    return unique.map((uid, idx) => ({
+        userId: uid,
+        name: users[uid]?.name || uid,
+        proxy: pickProxyForIndex(idx),
+        cookies: (users[uid]?.cookieObjects || normalizeCookiesForJar(users[uid]?.cookies || [])).map(makeCamoufoxCookie).filter(Boolean),
+    }));
+};
+
+class CamoufoxFleetManager {
+    constructor() {
+        this.proc = null;
+        this.userKey = '';
+        this.payloadPath = null;
+    }
+
+    _cleanupPayload() {
+        if (!this.payloadPath) return;
+        try { unlinkSync(this.payloadPath); } catch {}
+        this.payloadPath = null;
+    }
+
+    async stop() {
+        if (!this.proc) return;
+        const proc = this.proc;
+        this.proc = null;
+        this.userKey = '';
+        this._cleanupPayload();
+
+        await new Promise((resolve) => {
+            const timer = setTimeout(() => {
+                try { proc.kill('SIGKILL'); } catch {}
+                resolve();
+            }, 3000);
+
+            proc.once('exit', () => {
+                clearTimeout(timer);
+                resolve();
+            });
+
+            try { proc.kill('SIGTERM'); } catch {
+                clearTimeout(timer);
+                resolve();
+            }
+        });
+
+        log('SYSTEM', 'Camoufox', '🛑 Camoufox fleet stopped.');
+    }
+
+    async ensureForUsers(userIds) {
+        const payload = makeCamoufoxFleetPayload(userIds);
+        const key = payload.map((u) => `${u.userId}|${u.proxy || '-'}`).sort().join(',');
+
+        if (!payload.length) {
+            await this.stop();
+            return;
+        }
+
+        if (!existsSync(CAMOUFOX_FLEET_SCRIPT)) {
+            log('SYSTEM', 'Camoufox', `⚠️ Camoufox script missing: ${CAMOUFOX_FLEET_SCRIPT}`);
+            return;
+        }
+
+        if (this.proc && this.userKey === key && !this.proc.killed) return;
+
+        await this.stop();
+
+        const payloadPath = path.join(os.tmpdir(), `wplacer-camoufox-${randomUUID()}.json`);
+        writeFileSync(payloadPath, JSON.stringify({ users: payload }, null, 2));
+        this.payloadPath = payloadPath;
+
+        const proc = spawn('python', [CAMOUFOX_FLEET_SCRIPT, '--payload', payloadPath], {
+            stdio: ['ignore', 'pipe', 'pipe'],
+            cwd: __dirname,
+        });
+
+        proc.stdout.on('data', (chunk) => {
+            const text = String(chunk).trim();
+            if (text) log('SYSTEM', 'Camoufox', text);
+        });
+        proc.stderr.on('data', (chunk) => {
+            const text = String(chunk).trim();
+            if (text) log('SYSTEM', 'Camoufox', `stderr: ${text}`);
+        });
+        proc.on('exit', (code) => {
+            const unexpected = this.proc === proc;
+            if (unexpected) {
+                this.proc = null;
+                this.userKey = '';
+                this._cleanupPayload();
+            }
+            log('SYSTEM', 'Camoufox', `Fleet process exited with code ${code}.`);
+        });
+
+        this.proc = proc;
+        this.userKey = key;
+        log('SYSTEM', 'Camoufox', `🚀 Camoufox fleet started for ${payload.length} user(s).`);
+    }
+}
+
+const camoufoxFleetManager = new CamoufoxFleetManager();
+
+const getActiveTemplateUserIds = () => {
+    const ids = [];
+    for (const templateId in templates) {
+        if (!templates[templateId]?.running) continue;
+        ids.push(...templates[templateId].userIds);
+    }
+    return [...new Set(ids)];
+};
+
+const refreshCamoufoxFleetForActiveTemplates = async () => {
+    const activeUserIds = getActiveTemplateUserIds();
+    await camoufoxFleetManager.ensureForUsers(activeUserIds);
 };
 
 // Get the color ordoring for a given template, or global default.
@@ -1497,6 +1652,7 @@ class TemplateManager {
     async start() {
         this.running = true;
         this.status = 'Started.';
+        refreshCamoufoxFleetForActiveTemplates().catch((e) => log('SYSTEM', 'Camoufox', 'Error refreshing fleet in template start', e));
         log('SYSTEM', 'wplacer', `▶️ Starting template "${this.name}"...`);
         activePaintingTasks++;
 
@@ -1719,6 +1875,7 @@ class TemplateManager {
             activePaintingTasks--;
             if (this.status !== 'Finished.') this.status = 'Stopped.';
             this.userIds.forEach((id) => activeTemplateUsers.delete(id));
+            refreshCamoufoxFleetForActiveTemplates().catch((e) => log('SYSTEM', 'Camoufox', 'Error refreshing fleet after template finish', e));
             processQueue();
         }
     }
@@ -1830,6 +1987,7 @@ const processQueue = () => {
         if (!busy) {
             templateQueue.splice(i, 1);
             manager.userIds.forEach((id) => activeTemplateUsers.add(id));
+            refreshCamoufoxFleetForActiveTemplates().catch((e) => log('SYSTEM', 'Camoufox', 'Error refreshing fleet for queued template', e));
             manager.start().catch((e) => log(templateId, manager.masterName, 'Error starting queued template', e));
             break;
         }
@@ -2336,6 +2494,7 @@ app.put('/template/:id', (req, res) => {
             }
         } else {
             manager.userIds.forEach((uid) => activeTemplateUsers.add(uid));
+            refreshCamoufoxFleetForActiveTemplates().catch((e) => log('SYSTEM', 'Camoufox', 'Error refreshing fleet on start', e));
             manager.start().catch((e) => log(id, manager.masterName, 'Error starting template', e));
         }
     } else if (!req.body.running && manager.running) {
@@ -2346,6 +2505,7 @@ app.put('/template/:id', (req, res) => {
         if (idx > -1) templateQueue.splice(idx, 1);
 
         manager.userIds.forEach((uid) => activeTemplateUsers.delete(uid));
+        refreshCamoufoxFleetForActiveTemplates().catch((e) => log('SYSTEM', 'Camoufox', 'Error refreshing fleet on stop', e));
         processQueue(); // Always process queue after stopping
     }
     res.sendStatus(HTTP_STATUS.OK);
@@ -2806,6 +2966,7 @@ const diffVer = (v1, v2) => {
                 if (!manager) return;
                 log('SYSTEM', 'wplacer', `[${manager.name}] 🚀 Autostarting template...`);
                 if (manager.antiGriefMode) {
+                    refreshCamoufoxFleetForActiveTemplates().catch((e) => log('SYSTEM', 'Camoufox', 'Error refreshing fleet on autostart', e));
                     manager.start().catch((e) => log(id, manager.masterName, 'Error autostarting template', e));
                 } else {
                     const busy = manager.userIds.some((uid) => activeTemplateUsers.has(uid));
@@ -2816,6 +2977,7 @@ const diffVer = (v1, v2) => {
                         }
                     } else {
                         manager.userIds.forEach((uid) => activeTemplateUsers.add(uid));
+                        refreshCamoufoxFleetForActiveTemplates().catch((e) => log('SYSTEM', 'Camoufox', 'Error refreshing fleet on autostart', e));
                         manager.start().catch((e) => log(id, manager.masterName, 'Error autostarting template', e));
                     };
                 };
