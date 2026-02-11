@@ -127,7 +127,8 @@ class TurnstileAPIServer:
         self.camoufox = AsyncCamoufox(
             headless=self.headless,
             exclude_addons=[DefaultAddons.UBO],
-            args=self.browser_args
+            args=self.browser_args,
+            geoip=self.proxy_support,
         )
         self.browser = await self.camoufox.start()
 

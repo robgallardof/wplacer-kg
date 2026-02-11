@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
+
 from camoufox import DefaultAddons
 from camoufox.async_api import AsyncCamoufox
 
@@ -64,6 +65,7 @@ async def launch_user(user, extension_path: Path, stop_evt: asyncio.Event):
         headless=False,
         block_images=False,
         disable_coop=True,
+        geoip=bool(proxy),
         i_know_what_im_doing=True,
         exclude_addons=[DefaultAddons.UBO],
         addons=[str(extension_path)],
@@ -77,6 +79,7 @@ async def launch_user(user, extension_path: Path, stop_evt: asyncio.Event):
         await context.add_cookies(cookies)
 
     page = await context.new_page()
+    await page.goto("https://backend.wplace.live/", wait_until="domcontentloaded")
     await page.goto("https://wplace.live/", wait_until="domcontentloaded")
 
     try:
