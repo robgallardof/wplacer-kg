@@ -204,6 +204,50 @@ const ChargeCache = {
     REGEN_MS: 30_000,
     SYNC_MS: 8 * 60_000,
 
+    _intFromAny(...candidates) {
+        for (const value of candidates) {
+            const n = Number(value);
+            if (Number.isFinite(n) && n >= 0) return Math.floor(n);
+        }
+        return null;
+    },
+
+    _extractFromUserInfo(userInfo) {
+        const charges = userInfo?.charges;
+        const count = this._intFromAny(
+            charges?.count,
+            charges?.available,
+            charges?.current,
+            charges?.value,
+            userInfo?.chargeCount,
+            userInfo?.chargesCount,
+            userInfo?.availableCharges,
+            typeof charges === 'number' ? charges : null
+        ) ?? 0;
+
+        const max = this._intFromAny(
+            charges?.max,
+            charges?.capacity,
+            charges?.maxCount,
+            userInfo?.chargeMax,
+            userInfo?.maxCharges,
+            userInfo?.chargesMax,
+            userInfo?.maxCharge
+        ) ?? 0;
+
+        let sanitizedMax = max;
+        if (sanitizedMax <= 0 && count > 0) sanitizedMax = count;
+        if (sanitizedMax <= 0) sanitizedMax = 1;
+
+        let sanitizedCount = count;
+        if (count > sanitizedMax) {
+            console.log(`[ChargeCache] Correcting optimistic charge count for user ${userInfo?.id}. Server sent ${count}, capping to max ${sanitizedMax}.`);
+            sanitizedCount = sanitizedMax;
+        }
+
+        return { count: sanitizedCount, max: sanitizedMax };
+    },
+
     _key(id) {
         return String(id);
     },
@@ -216,19 +260,10 @@ const ChargeCache = {
         return now - u.lastSync > this.SYNC_MS;
     },
     markFromUserInfo(userInfo, now = Date.now()) {
-        if (!userInfo?.id || !userInfo?.charges) return;
+        if (!userInfo?.id) return;
         const k = this._key(userInfo.id);
-        
-        const count = Math.floor(userInfo.charges.count ?? 0);
-        const max = Math.floor(userInfo.charges.max ?? 0);
-
-        let sanitizedCount = count;
-        if (count > max) {
-            console.log(`[ChargeCache] Correcting optimistic charge count for user ${userInfo.id}. Server sent ${count}, capping to max ${max}.`);
-            sanitizedCount = max;
-        }
-        
-        this._m.set(k, { base: sanitizedCount, max, lastSync: now });
+        const parsed = this._extractFromUserInfo(userInfo);
+        this._m.set(k, { base: parsed.count, max: parsed.max, lastSync: now });
     },
     predict(id, now = Date.now()) {
         const u = this._m.get(this._key(id));
@@ -1083,7 +1118,8 @@ class WPlacer {
                 break;
         }
 
-        const chargesNow = Math.floor(this.userInfo?.charges?.count ?? 0);
+        const parsedCharges = ChargeCache._extractFromUserInfo(this.userInfo);
+        const chargesNow = parsedCharges.count;
         const todo = mismatched.slice(0, chargesNow);
 
         // group per tile
@@ -1823,8 +1859,8 @@ class TemplateManager {
 
                                     await this.handleChargePurchases(wplacer);
 
-                                    const chargesBeforePaint = wplacer.userInfo.charges;
-                                    log(userInfo.id, userInfo.name, `[${this.name}] 🔋 Best user selected. Ready with charges: ${Math.floor(chargesBeforePaint.count)}/${chargesBeforePaint.max}.`);
+                                    const chargesBeforePaint = ChargeCache._extractFromUserInfo(wplacer.userInfo);
+                                    log(userInfo.id, userInfo.name, `[${this.name}] 🔋 Best user selected. Ready with charges: ${chargesBeforePaint.count}/${chargesBeforePaint.max}.`);
 
                                     await this._performPaintTurn(wplacer, color);
                                     await this.handleUpgrades(wplacer);
@@ -1863,7 +1899,9 @@ class TemplateManager {
                                     return Math.max(0, (th - p.count) * (p.cooldownMs ?? 30_000));
                                 });
 
-                                let waitTime = (cooldowns.length > 0 ? Math.min(...cooldowns) : 60_000) + 2000;
+                                const finiteCooldowns = cooldowns.filter((ms) => Number.isFinite(ms));
+                                let waitTime = (finiteCooldowns.length > 0 ? Math.min(...finiteCooldowns) : 60_000) + 2000;
+                                if (!Number.isFinite(waitTime) || waitTime <= 0) waitTime = 60_000;
                                 if (waitTime < currentSettings.accountCooldown) {
                                     log('SYSTEM', 'wplacer', `[${this.name}] ⚠️ Calculated wait time (${duration(waitTime)}) is unusually short. Defaulting to account cooldown to prevent rapid looping.`);
                                     waitTime = currentSettings.accountCooldown;
