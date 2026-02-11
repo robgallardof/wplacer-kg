@@ -14,7 +14,7 @@
     <!-- Status Indicator -->
     <div class="status-indicator">
         <div id="statusDot" class="status-dot active"></div>
-        <p id="status">Ready. Tokens will be sent automatically.</p>
+        <p id="status">Ready. KGlacer is synced with your local server.</p>
     </div>
 
     <!-- Tab Navigation -->
@@ -28,7 +28,7 @@
         <!-- Actions Tab Content -->
         <div id="actions-tab" class="tab-content active">
             <button id="sendCookieBtn"><i class="fas fa-user-plus"></i> Add/Update User</button>
-            <button id="clearPawtectBtn"><i class="fas fa-broom"></i> Clear Token Cache</button>
+            <button id="clearPawtectBtn"><i class="fas fa-broom"></i> Clear Paint Cache</button>
             <button id="toggleOverlayBtn"><i class="fas fa-toggle-on"></i> <span id="toggleOverlayText">Disable Overlay</span></button>
             <button id="logoutBtn" class="destructive"><i class="fas fa-sign-out-alt"></i> Quick Logout</button>
         </div>
@@ -43,12 +43,12 @@
                 <div class="settings">
                     <label for="autoReload">Auto Reload:</label>
                     <input type="checkbox" id="autoReload" checked>
-                    <span class="setting-description">Automatically reload when tokens are needed</span>
+                    <span class="setting-description">Automatically reload when the server requests action</span>
                 </div>
                 <div class="settings">
                     <label for="autoClear">Auto Clear Cache:</label>
                     <input type="checkbox" id="autoClear" checked>
-                    <span class="setting-description">Clear token cache if waiting too long</span>
+                    <span class="setting-description">Clear local paint cache if the server waits too long</span>
                 </div>
                 
                 <button id="saveSettingsBtn">

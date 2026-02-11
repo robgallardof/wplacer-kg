@@ -1,52 +1,12 @@
 // --- Constants ---
-const RELOAD_FLAG = 'wplacer_reload_in_progress';
-const GEN_REQUEST_TYPE = 'WPLACER_TURNSTILE_REQUEST';
-const GEN_TOKEN_TYPE = 'WPLACER_TURNSTILE_TOKEN';
-const OVERLAY_ID = 'wplacer-overlay-root';
-const LAUNCHER_ID = 'wplacer-overlay-launcher';
-const OVERLAY_CLOSED_FLAG = 'wplacer_overlay_closed';
-const PERIODIC_GEN_MS = 20000; // 20s periodic generation
+const RELOAD_FLAG = 'kglacer_reload_in_progress';
+const OVERLAY_ID = 'kglacer-overlay-root';
+const LAUNCHER_ID = 'kglacer-overlay-launcher';
+const OVERLAY_CLOSED_FLAG = 'kglacer_overlay_closed';
+const OVERLAY_HEALTHCHECK_MS = 2500;
 
 // --- Main Logic ---
-console.log("✅ wplacer: Content script loaded.");
-
-// Inject the page-level Turnstile generator so it runs in the page context
-(function injectGenerator() {
-    try {
-        const script = document.createElement('script');
-        script.src = chrome.runtime.getURL('turnstile_inject.js');
-        script.async = false;
-        (document.head || document.documentElement).appendChild(script);
-        script.onload = () => script.remove();
-    } catch (e) {
-        console.warn('wplacer: Failed to inject generator script', e);
-    }
-})();
-
-// Inject pawtect helper on load and allow manual reinject via Ctrl+Shift+P
-let pawtectInjected = false;
-const injectPawtectHelper = () => {
-    if (pawtectInjected) return;
-    try {
-        const script = document.createElement('script');
-        script.src = chrome.runtime.getURL('pawtect_inject.js');
-        script.async = true;
-        (document.head || document.documentElement).appendChild(script);
-        pawtectInjected = true;
-        console.log('wplacer: pawtect helper injected.');
-    } catch (e) {
-        console.warn('wplacer: Failed to inject pawtect helper', e);
-    }
-};
-if (location.hostname.endsWith('wplace.live')) {
-    injectPawtectHelper();
-}
-window.addEventListener('keydown', (e) => {
-    if (e.ctrlKey && e.shiftKey && (e.key === 'P' || e.key === 'p')) {
-        pawtectInjected = false; // allow re-inject
-        injectPawtectHelper();
-    }
-}, true);
+console.log('✅ kglacer: Content script loaded.');
 
 // --- Overlay UI (full-page) ---
 // --- Overlay UI (full-page) ---
@@ -55,7 +15,7 @@ window.addEventListener('keydown', (e) => {
 
     const getPort = () => new Promise((resolve) => {
         try {
-            chrome.storage.local.get(['wplacerPort'], (result) => resolve(result?.wplacerPort || 80));
+            chrome.storage.local.get(['kglacerPort', 'wplacerPort'], (result) => resolve(result?.kglacerPort || result?.wplacerPort || 80));
         } catch {
             resolve(80);
         }
@@ -68,12 +28,12 @@ window.addEventListener('keydown', (e) => {
                 chrome.storage.local.get(['enableOverlay'], (result) => {
                     // Default to true if setting doesn't exist
                     const enabled = result.enableOverlay !== undefined ? result.enableOverlay : true;
-                    console.log('wplacer: Overlay enabled from extension settings:', enabled);
+                    console.log('kglacer: Overlay enabled from extension settings:', enabled);
                     resolve(enabled);
                 });
             });
         } catch (e) {
-            console.log('wplacer: Could not check overlay settings, defaulting to enabled', e);
+            console.log('kglacer: Could not check overlay settings, defaulting to enabled', e);
             return true; // Default to enabled if there's an error
         }
     };
@@ -82,7 +42,7 @@ window.addEventListener('keydown', (e) => {
         if (document.getElementById(LAUNCHER_ID)) return;
         const btn = document.createElement('button');
         btn.id = LAUNCHER_ID;
-        btn.textContent = 'Open wplacer';
+        btn.textContent = 'Open kglacer';
         btn.style.cssText = [
             'position:fixed',
             'bottom: 20px',
@@ -109,14 +69,14 @@ window.addEventListener('keydown', (e) => {
             btn.style.transform = 'translateY(0)';
             btn.style.boxShadow = '0 6px 18px rgba(255, 122, 26, 0.4)';
         });
-        btn.title = 'Open wplacer overlay (Ctrl+Shift+W)';
+        btn.title = 'Open kglacer overlay (Ctrl+Shift+W)';
         on(btn, 'click', () => {
             checkOverlayEnabled().then(enabled => {
                 if (enabled) {
                     sessionStorage.removeItem(OVERLAY_CLOSED_FLAG);
                     ensureOverlay(true);
                 } else {
-                    console.log('wplacer: Overlay is disabled in settings, not showing');
+                    console.log('kglacer: Overlay is disabled in settings, not showing');
                 }
             });
         });
@@ -142,13 +102,38 @@ window.addEventListener('keydown', (e) => {
 
     const removeOverlay = () => {
         const root = document.getElementById(OVERLAY_ID);
-        if (root) try { root.remove(); } catch {}
+        if (root) {
+            try {
+                if (typeof root.__kglacerCleanup === 'function') {
+                    root.__kglacerCleanup();
+                }
+                root.remove();
+            } catch {}
+        }
         createLauncher();
     };
 
     const createOverlay = async () => {
         if (document.getElementById(OVERLAY_ID)) return;
         const port = await getPort();
+        const overlayUrl = `http://127.0.0.1:${port}/`;
+        let reconnectTimer = null;
+        let reconnectAttempts = 0;
+
+        const clearReconnectTimer = () => {
+            if (!reconnectTimer) return;
+            clearInterval(reconnectTimer);
+            reconnectTimer = null;
+        };
+
+        const updateConnectionBadge = (badgeEl, message, isOnline) => {
+            if (!badgeEl) return;
+            badgeEl.textContent = message;
+            badgeEl.style.background = isOnline ? 'rgba(46,204,113,.25)' : 'rgba(255,95,95,.22)';
+            badgeEl.style.borderColor = isOnline ? 'rgba(46,204,113,.55)' : 'rgba(255,95,95,.45)';
+            badgeEl.style.color = isOnline ? '#beffd6' : '#ffd3d3';
+        };
+
         const overlay = document.createElement('div');
         overlay.id = OVERLAY_ID;
         overlay.style.cssText = [
@@ -179,7 +164,23 @@ window.addEventListener('keydown', (e) => {
             'box-shadow:0 2px 5px rgba(0,0,0,0.2)'
         ].join(';');
         const title = document.createElement('div');
-        title.textContent = 'wplacer overlay';
+        title.textContent = 'kglacer overlay';
+        const statusBadge = document.createElement('div');
+        statusBadge.style.cssText = [
+            'margin-left:12px',
+            'padding:4px 8px',
+            'border-radius:999px',
+            'font:500 12px/1 "Segoe UI",sans-serif',
+            'border:1px solid rgba(255,255,255,.2)',
+            'white-space:nowrap'
+        ].join(';');
+        updateConnectionBadge(statusBadge, 'Connecting...', false);
+
+        const titleWrap = document.createElement('div');
+        titleWrap.style.cssText = 'display:flex;align-items:center;';
+        titleWrap.appendChild(title);
+        titleWrap.appendChild(statusBadge);
+
         const controls = document.createElement('div');
 
         const btnStyle = [
@@ -219,11 +220,11 @@ window.addEventListener('keydown', (e) => {
 
         controls.appendChild(minimizeBtn);
         controls.appendChild(closeBtn);
-        bar.appendChild(title);
+        bar.appendChild(titleWrap);
         bar.appendChild(controls);
 
         const iframe = document.createElement('iframe');
-        iframe.src = `http://127.0.0.1:${port}/`;
+        iframe.src = overlayUrl;
         iframe.style.cssText = [
             'position:absolute',
             'top:40px',
@@ -253,13 +254,48 @@ window.addEventListener('keydown', (e) => {
         ].join(';');
         fallback.innerHTML = `
             <div>
-                <div style="opacity:.8;margin-bottom:8px;">Could not load embedded UI (possibly blocked by CSP).</div>
-                <a href="http://127.0.0.1:${port}/" target="_blank" rel="noopener noreferrer" style="color:#ff9a4d;text-decoration:none;border-bottom:1px dotted #ff9a4d;">Open wplacer in a new tab</a>
+                <div style="opacity:.9;margin-bottom:10px;">Local UI is not reachable yet. If your instance started after opening this tab, it will reconnect automatically.</div>
+                <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+                    <button id="kglacer-retry-overlay" style="padding:8px 12px;border:1px solid rgba(255,255,255,.3);border-radius:8px;background:rgba(255,255,255,.1);color:#fff;cursor:pointer;">Retry now</button>
+                    <a href="${overlayUrl}" target="_blank" rel="noopener noreferrer" style="padding:8px 12px;border:1px solid rgba(255,154,77,.6);border-radius:8px;color:#ffb073;text-decoration:none;">Open kglacer in a new tab</a>
+                </div>
             </div>
         `;
 
-        on(iframe, 'error', () => { fallback.style.display = 'flex'; });
-        on(iframe, 'load', () => { fallback.style.display = 'none'; });
+        const retryIframeLoad = () => {
+            reconnectAttempts += 1;
+            updateConnectionBadge(statusBadge, `Reconnecting… (${reconnectAttempts})`, false);
+            iframe.src = `${overlayUrl}?_kglacer=${Date.now()}`;
+        };
+
+        const startReconnectLoop = () => {
+            if (reconnectTimer) return;
+            reconnectTimer = setInterval(retryIframeLoad, OVERLAY_HEALTHCHECK_MS);
+        };
+
+        const handleIframeUnavailable = () => {
+            fallback.style.display = 'flex';
+            updateConnectionBadge(statusBadge, 'Offline', false);
+            startReconnectLoop();
+        };
+
+        on(iframe, 'error', handleIframeUnavailable);
+        on(iframe, 'load', () => {
+            reconnectAttempts = 0;
+            clearReconnectTimer();
+            updateConnectionBadge(statusBadge, 'Connected', true);
+            fallback.style.display = 'none';
+        });
+
+        const retryBtn = fallback.querySelector('#kglacer-retry-overlay');
+        on(retryBtn, 'click', retryIframeLoad);
+
+        // Ensure overlay recovers when local instance starts after extension/page was already open.
+        startReconnectLoop();
+
+        overlay.__kglacerCleanup = () => {
+            clearReconnectTimer();
+        };
 
         overlay.appendChild(bar);
         overlay.appendChild(iframe);
@@ -275,12 +311,17 @@ window.addEventListener('keydown', (e) => {
         const enabled = await checkOverlayEnabled();
         
         if (!enabled) {
-            console.log('wplacer: Overlay is disabled in settings, destroying overlay if it exists');
+            console.log('kglacer: Overlay is disabled in settings, destroying overlay if it exists');
             // If overlay exists and setting is disabled, destroy it completely
             const existingOverlay = document.getElementById(OVERLAY_ID);
             if (existingOverlay) {
-                try { existingOverlay.remove(); } catch {}
-                console.log('wplacer: Existing overlay destroyed due to disabled setting');
+                try {
+                    if (typeof existingOverlay.__kglacerCleanup === 'function') {
+                        existingOverlay.__kglacerCleanup();
+                    }
+                    existingOverlay.remove();
+                } catch {}
+                console.log('kglacer: Existing overlay destroyed due to disabled setting');
             }
             return;
         }
@@ -316,289 +357,26 @@ window.addEventListener('keydown', (e) => {
                     if (enabled) {
                         ensureOverlay(true);
                     } else {
-                        console.log('wplacer: Overlay is disabled in settings, not showing');
+                        console.log('kglacer: Overlay is disabled in settings, not showing');
                         createLauncher();
                     }
                 });
             }
         }
     }, true);
-})();
+})()
+
+// Handle reload commands from the background worker.
+chrome.runtime.onMessage.addListener((request) => {
+    if (request.action === 'reloadForToken') {
+        console.log('kglacer: Received reload command from background script. Reloading now...');
+        sessionStorage.setItem(RELOAD_FLAG, 'true');
+        location.reload();
+    }
+});
 
 // Check if this load was triggered by our extension
 if (sessionStorage.getItem(RELOAD_FLAG)) {
     sessionStorage.removeItem(RELOAD_FLAG);
-    console.log("wplacer: Page reloaded to capture a new token.");
-}
-
-const sentTokens = new Set();
-const pending = {
-    turnstile: null,
-    pawtect: null
-};
-
-// Generate a random hex fingerprint (default 32 chars)
-const generateRandomHex = (length = 32) => {
-    const bytes = new Uint8Array(Math.ceil(length / 2));
-    crypto.getRandomValues(bytes);
-    return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('').slice(0, length);
-};
-
-// Create a per-load fingerprint and expose it for page usage
-try {
-    const fp = generateRandomHex(32);
-    window.wplacerFP = fp;
-    sessionStorage.setItem('wplacer_fp', fp);
-    console.log('wplacer: fingerprint generated:', fp);
-} catch {}
-
-// Try to get the current color order from the page
-const getCurrentColorOrder = () => {
-    try {
-        // Check for color order in window/global objects (fastest method)
-        if (window.app && window.app.palette && Array.isArray(window.app.palette.colors)) {
-            return window.app.palette.colors;
-        }
-        
-        // Try to find color order in localStorage
-        const storedPalette = localStorage.getItem('wplace_palette');
-        if (storedPalette) {
-            try {
-                const palette = JSON.parse(storedPalette);
-                if (Array.isArray(palette)) {
-                    return palette;
-                }
-            } catch {}
-        }
-        
-        // Look for color palette elements in the DOM (slowest method)
-        const colorPalette = document.querySelector('[data-testid="palette"]');
-        if (colorPalette) {
-            const colorButtons = colorPalette.querySelectorAll('button');
-            if (colorButtons && colorButtons.length > 0) {
-                const colors = [];
-                colorButtons.forEach(button => {
-                    const colorIndex = button.getAttribute('data-color-index') || 
-                                      button.getAttribute('data-index') || 
-                                      button.getAttribute('data-id');
-                    if (colorIndex && !isNaN(parseInt(colorIndex))) {
-                        colors.push(parseInt(colorIndex));
-                    }
-                });
-                if (colors.length > 0) {
-                    return colors;
-                }
-            }
-        }
-    } catch (e) {
-        console.error('wplacer: Error getting color order:', e);
-    }
-    return null;
-};
-
-const postToken = (token, pawtectToken) => {
-    // Skip if token is invalid or already sent
-    if (!token || typeof token !== 'string' || sentTokens.has(token)) {
-        return;
-    }
-    sentTokens.add(token);
-    console.log(`✅ wplacer: CAPTCHA Token Captured. Sending to server.`);
-    // Get fingerprint from available sources
-    const fp = window.wplacerFP || sessionStorage.getItem('wplacer_fp') || generateRandomHex(32);
-    
-    // Get current color order
-    const colors = getCurrentColorOrder();
-    if (colors) {
-        console.log('wplacer: Sending token with color order:', colors);
-    }
-    
-    // Store in pending object if it's a turnstile token
-    if (!pawtectToken) {
-        pending.turnstile = token;
-        // Try to send as a pair if we have both tokens
-        trySendPair();
-    }
-    
-    chrome.runtime.sendMessage({
-        type: "SEND_TOKEN",
-        token: token,
-        pawtect: pawtectToken,
-        fp,
-        colors
-    });
-};
-
-// Try to send token pair if we have both
-const trySendPair = () => {
-    if (pending.turnstile && pending.pawtect) {
-        console.log('wplacer: Sending token pair to background script.');
-        chrome.runtime.sendMessage({
-            action: "tokenPairReceived",
-            turnstile: pending.turnstile,
-            pawtect: pending.pawtect
-        });
-        
-        // Clear pending after sending
-        pending.turnstile = null;
-        pending.pawtect = null;
-    }
-};
-
-// Ask background to inject pawtect fetch hook into page (bypasses CSP)
-try {
-    if (!window.__wplacerPawtectRequested) {
-        window.__wplacerPawtectRequested = true;
-        chrome.runtime.sendMessage({ action: 'injectPawtect' });
-        console.log('wplacer: requested pawtect hook injection.');
-    }
-} catch {}
-
-// Auto-trigger a harmless pixel POST in page context to seed pawtect on load
-try {
-    if (!sessionStorage.getItem('wplacer_seeded')) {
-        const fp = window.wplacerFP || sessionStorage.getItem('wplacer_fp') || generateRandomHex(32);
-        const seedBody = { colors: [0], coords: [randomInt(1000), randomInt(1000)], fp, t: 'wplacer_seed' };
-        chrome.runtime.sendMessage({ action: 'seedPawtect', bodyStr: JSON.stringify(seedBody) });
-        sessionStorage.setItem('wplacer_seeded', '1');
-    }
-} catch {}
-
-// --- Event Listeners ---
-
-// 1. Listen for messages from the Cloudflare Turnstile iframe (primary method)
-window.addEventListener('message', (event) => {
-    if (event.origin !== "https://challenges.cloudflare.com" || !event.data) {
-        return;
-    }
-    try {
-        // Ensure token is always a string
-            const token = String(event.data.token || event.data.response || event.data['cf-turnstile-response'] || '');
-        if (token) {
-            pending.turnstile = token;
-            // Kick off pawtect compute seeded with this turnstile token
-            const fp = window.wplacerFP || sessionStorage.getItem('wplacer_fp') || generateRandomHex(32);
-            // Ensure all values are properly typed
-            const body = { colors: [0], coords: [1, 1], fp: String(fp), t: String(token) };
-            try {
-                chrome.runtime.sendMessage({
-                    action: 'computePawtectForT',
-                    url: 'https://backend.wplace.live/s0/pixel/1/1',
-                    bodyStr: JSON.stringify(body)
-                });
-            } catch {}
-            // If a pawtect token already arrived, pair immediately; otherwise, give compute a brief window
-            if (window.wplacerPawtectToken) {
-                pending.pawtect = window.wplacerPawtectToken;
-                try { delete window.wplacerPawtectToken; } catch {}
-            }
-            // Only send when both are present
-            trySendPair();
-        }
-    } catch {
-        // Ignore errors from parsing message data
-    }
-}, true);
-
-// 1b. Listen for pawtect helper token messages (from page context)
-window.addEventListener('message', (event) => {
-    try {
-        if (event.source !== window) return;
-        const data = event.data;
-        if (data && data.type === 'WPLACER_PAWTECT_TOKEN' && typeof data.token === 'string') {
-            pending.pawtect = data.token;
-            window.wplacerPawtectToken = data.token;
-            console.log('✅ wplacer: Pawtect token captured from', data.origin || 'unknown', 'waiting/pairing...');
-            trySendPair();
-        }
-    } catch {}
-}, true);
-
-// Listen for pawtect token message (for visibility in DevTools)
-window.addEventListener('message', (event) => {
-    try {
-        if (event.source === window && event.data && event.data.type === 'WPLACER_PAWTECT_TOKEN') {
-            const token = event.data.token || null;
-            const fp = event.data.fp || null;
-            console.log('✅ wplacer: Pawtect token:', token);
-            if (fp) console.log('✅ wplacer: Pawtect fp:', fp);
-            try {
-                chrome.runtime.sendMessage({ action: 'applyPawtect', token, fp });
-            } catch {}
-        }
-    } catch {}
-}, true);
-
-// 2. Listen for commands from the background script
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === "reloadForToken") {
-        console.log("wplacer: Received reload command from background script. Reloading now...");
-        sessionStorage.setItem(RELOAD_FLAG, 'true');
-        location.reload();
-    } else if (request.action === 'generateToken') {
-        console.log('wplacer: Received generateToken command. Attempting in-page Turnstile execution...');
-        requestInPageTokenWithTimeout(55000, true);
-    }
-});
-
-// --- Periodic token generation (without backend request trigger) ---
-let periodicTimer = null;
-let periodicBusy = false;
-
-const requestInPageTokenWithTimeout = (timeoutMs = 55000, fallbackToReload = false) => {
-    // Ask the injected script to generate a token and handle timeout
-    let done = false;
-    const timeout = setTimeout(() => {
-        if (done) return;
-        done = true;
-        if (fallbackToReload) {
-            console.warn('wplacer: Token generation timed out, falling back to reload.');
-            sessionStorage.setItem(RELOAD_FLAG, 'true');
-            location.reload();
-        }
-    }, timeoutMs);
-
-    const onToken = (event) => {
-        if (event.source === window && event.data?.type === GEN_TOKEN_TYPE) {
-            window.removeEventListener('message', onToken, true);
-            if (done) return;
-            done = true;
-            clearTimeout(timeout);
-            if (event.data.token) {
-                postToken(event.data.token);
-            } else if (fallbackToReload) {
-                console.warn('wplacer: Generator responded without token. Reloading.');
-                sessionStorage.setItem(RELOAD_FLAG, 'true');
-                location.reload();
-            }
-        }
-    };
-    window.addEventListener('message', onToken, true);
-    window.postMessage({ type: GEN_REQUEST_TYPE }, '*');
-};
-
-const periodicTick = async () => {
-    // Only run on wplace.live and when page is visible to reduce overhead
-    if (!location.hostname.endsWith('wplace.live')) return;
-    if (document.visibilityState !== 'visible') return;
-    if (periodicBusy) return;
-    periodicBusy = true;
-    try {
-        requestInPageTokenWithTimeout(15000, true);
-    } finally {
-        // Release lock slightly after to avoid tight loops
-        setTimeout(() => { periodicBusy = false; }, 2000);
-    }
-};
-
-const startPeriodicGeneration = () => {};
-
-const stopPeriodicGeneration = () => {
-    if (!periodicTimer) return;
-    try { clearInterval(periodicTimer); } catch {}
-    periodicTimer = null;
-};
-
-// Start the periodic generator on load for wplace.live pages
-if (location.hostname.endsWith('wplace.live')) {
-    window.addEventListener('beforeunload', () => stopPeriodicGeneration(), { once: true });
+    console.log('kglacer: Page reloaded from extension command.');
 }
