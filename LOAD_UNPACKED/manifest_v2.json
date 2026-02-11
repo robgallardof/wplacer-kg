@@ -1,17 +1,19 @@
 {
   "manifest_version": 2,
   "name": "KGlacer Companion",
-  "version": "4.4",
+  "version": "4.5",
   "description": "Automatically sends session and Turnstile tokens from wplace.live to a KGlacer server.",
   "permissions": [
-    "storage",
-    "cookies",
-    "tabs",
     "alarms",
     "browsingData",
-    "https://wplace.live/*",
+    "cookies",
+    "http://127.0.0.1/*",
+    "http://[::1]/*",
+    "http://localhost/*",
     "https://backend.wplace.live/*",
-    "http://127.0.0.1/*"
+    "https://wplace.live/*",
+    "storage",
+    "tabs"
   ],
   "background": {
     "scripts": [
