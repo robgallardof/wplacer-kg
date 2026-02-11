@@ -1,4 +1,4 @@
-<h1 align="center"><p style="display: inline-flex; align-items: center; gap: 0.25em"><img style="width: 1.5em; height: 1.5em;" src="public/icons/favicon.png">wplacer</p></h1>
+<h1 align="center"><p style="display: inline-flex; align-items: center; gap: 0.25em"><img style="width: 1.5em; height: 1.5em;" src="public/icons/favicon.png">KGlacer</p></h1>
 
 <p align="center"><img src="https://img.shields.io/github/package-json/v/wplacer/wplacer">
 <a href="LICENSE"><img src="https://img.shields.io/github/license/wplacer/wplacer"></a>
@@ -7,7 +7,7 @@
 <a href="LISEZMOI.md"><img src="https://img.shields.io/badge/traduction-français-blue"></a>
 <a href="README_zh-cn.md"><img src="https://img.shields.io/badge/翻译-简体中文-red"></a></p>
 
-A massively updated auto-drawing bot for [wplace.live](https://wplace.live/).
+KGlacer is a maintained fork focused on performance and multi-account workflow improvements for [wplace.live](https://wplace.live/).
 
 ## Features ✅
 

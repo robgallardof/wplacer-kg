@@ -10,9 +10,9 @@ process.on('uncaughtException', (err) => {
     }
     throw err;
 });
-import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, createWriteStream } from 'node:fs';
 import { Image, createCanvas } from 'canvas';
-import { exec } from 'node:child_process';
+import { exec, execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { CookieJar } from 'tough-cookie';
 import gradient from 'gradient-string';
@@ -55,6 +55,11 @@ const DATA_DIR = './data';
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const TEMPLATES_PATH = path.join(DATA_DIR, 'templates.json');
+const AUTO_LOGIN_DIR = path.join(__dirname, 'AUTO_LOGIN');
+const AUTO_LOGIN_REQUIREMENTS = path.join(AUTO_LOGIN_DIR, 'requirements.txt');
+const AUTO_LOGIN_PROXIES = path.join(AUTO_LOGIN_DIR, 'proxies.txt');
+const AUTO_LOGIN_WEBSHARE_CONFIG = path.join(AUTO_LOGIN_DIR, 'webshare_config.json');
+const AUTO_LOGIN_PROXY_DB = path.join(AUTO_LOGIN_DIR, 'proxy_pool.db');
 
 const JSON_LIMIT = '50mb';
 
@@ -83,27 +88,31 @@ const HTTP_STATUS = {
 // ---------- FS bootstrap ----------
 
 if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
-// Ensure logs.log and errors.log exist
-const logFiles = [
-    path.join(DATA_DIR, 'logs.log'),
-    path.join(DATA_DIR, 'errors.log')
-];
-for (const file of logFiles) {
-    if (!existsSync(file)) {
-        writeFileSync(file, '', { flag: 'w' });
-    }
+const LOGS_FILE = path.join(DATA_DIR, 'logs.log');
+const ERRORS_FILE = path.join(DATA_DIR, 'errors.log');
+for (const file of [LOGS_FILE, ERRORS_FILE]) {
+    if (!existsSync(file)) writeFileSync(file, '', { flag: 'w' });
 }
 
-/** Structured logger. Errors to errors.log, info to logs.log. */
+// Async write streams avoid blocking the event loop per log write.
+const logsStream = createWriteStream(LOGS_FILE, { flags: 'a' });
+const errorsStream = createWriteStream(ERRORS_FILE, { flags: 'a' });
+
+/**
+ * Structured logger.
+ * Uses async streams for better runtime performance under heavy logging.
+ */
 const log = async (id, name, data, error) => {
     const ts = new Date().toLocaleString();
     const who = `(${name}#${id})`;
     if (error) {
+        const line = `[${ts}] ${who} ${data}: ${error.stack || error.message}\n`;
         console.error(`[${ts}] ${who} ${data}:`, error);
-        appendFileSync(path.join(DATA_DIR, 'errors.log'), `[${ts}] ${who} ${data}: ${error.stack || error.message}\n`);
+        errorsStream.write(line);
     } else {
+        const line = `[${ts}] ${who} ${data}\n`;
         console.log(`[${ts}] ${who} ${data}`);
-        appendFileSync(path.join(DATA_DIR, 'logs.log'), `[${ts}] ${who} ${data}\n`);
+        logsStream.write(line);
     }
 };
 
@@ -390,6 +399,67 @@ const getColorOrderForTemplate = (templateId) => {
 
 // ---------- HTTP client wrapper ----------
 
+// ---------- Cookie helpers ----------
+
+const DEFAULT_COOKIE_EXPIRATION = 13416346659.24397;
+
+const tokenToBackendCookie = (token, expirationDate = DEFAULT_COOKIE_EXPIRATION) => ({
+    name: 'j',
+    path: '/',
+    value: String(token),
+    domain: '.backend.wplace.live',
+    secure: true,
+    session: false,
+    storeId: 'Default',
+    hostOnly: true,
+    httpOnly: true,
+    sameSite: 'Strict',
+    expirationDate,
+});
+
+const normalizeCookiesForJar = (cookiesInput) => {
+    if (!cookiesInput) return [];
+
+    if (Array.isArray(cookiesInput)) {
+        return cookiesInput
+            .filter((c) => c && c.name && c.value)
+            .map((c) => ({ ...c, name: String(c.name), value: String(c.value) }));
+    }
+
+    if (cookiesInput && typeof cookiesInput === 'object' && cookiesInput.name && cookiesInput.value) {
+        return [{ ...cookiesInput, name: String(cookiesInput.name), value: String(cookiesInput.value) }];
+    }
+
+    if (cookiesInput && typeof cookiesInput === 'object') {
+        return Object.entries(cookiesInput)
+            .filter(([k, v]) => k && v != null)
+            .map(([k, v]) => ({ name: String(k), value: String(v), path: '/', domain: '.backend.wplace.live' }));
+    }
+
+    return [];
+};
+
+const buildCookieJarFromInput = (cookiesInput) => {
+    const jar = new CookieJar();
+    const cookies = normalizeCookiesForJar(cookiesInput);
+
+    for (const cookie of cookies) {
+        const domain = cookie.domain || '.backend.wplace.live';
+        const path = cookie.path || '/';
+        const secure = cookie.secure ? '; Secure' : '';
+        const httpOnly = cookie.httpOnly ? '; HttpOnly' : '';
+        const sameSite = cookie.sameSite ? `; SameSite=${cookie.sameSite}` : '';
+        const expires = Number.isFinite(cookie.expirationDate) ? `; Expires=${new Date(cookie.expirationDate * 1000).toUTCString()}` : '';
+        const header = `${cookie.name}=${cookie.value}; Domain=${domain}; Path=${path}${secure}${httpOnly}${sameSite}${expires}`;
+        jar.setCookieSync(header, WPLACE_BASE);
+    }
+
+    return jar;
+};
+
+const getUserCookiesForLogin = (user) => user?.cookieObjects?.length ? user.cookieObjects : user?.cookies;
+
+
 /**
  * Minimal WPlacer client for authenticated calls.
  * Holds cookie jar, optional proxy, and Impit fetch context.
@@ -433,10 +503,7 @@ class WPlacer {
 
     async login(cookies) {
         this.cookies = cookies;
-        const jar = new CookieJar();
-        for (const k of Object.keys(this.cookies)) {
-            jar.setCookieSync(`${k}=${this.cookies[k]}; Path=/`, WPLACE_BASE);
-        }
+        const jar = buildCookieJarFromInput(this.cookies);
         const sleepTime = Math.floor(Math.random() * MS.TWO_SEC) + MS.QUARTER_SEC;
         await sleep(sleepTime);
         const opts = { cookieJar: jar, browser: 'chrome', ignoreTlsErrors: true };
@@ -452,9 +519,7 @@ class WPlacer {
 
     async switchUser(cookies) {
         this.cookies = cookies;
-        const jar = new CookieJar();
-        for (const k of Object.keys(this.cookies)) jar.setCookieSync(`${k}=${this.cookies[k]}; Path=/`, WPLACE_BASE);
-        this.browser.cookieJar = jar;
+        this.browser.cookieJar = buildCookieJarFromInput(this.cookies);
         await this.loadUserInfo();
         return this.userInfo;
     }
@@ -618,6 +683,101 @@ class WPlacer {
         throw new Error(`Unexpected response for tile ${tx},${ty}: ${JSON.stringify(response)}`);
     }
 
+    /**
+     * Natural paint order: serpentine in small vertical bands + tiny local jitter.
+     * This avoids overly rigid straight-line behavior while remaining efficient.
+     */
+    _sortNaturalPixels(pixels) {
+        const bandHeight = 6;
+        const bands = new Map();
+
+        for (const px of pixels) {
+            const band = Math.floor(px.localY / bandHeight);
+            if (!bands.has(band)) bands.set(band, []);
+            bands.get(band).push(px);
+        }
+
+        const orderedBands = [...bands.keys()].sort((a, b) => a - b);
+        const out = [];
+
+        for (let i = 0; i < orderedBands.length; i++) {
+            const band = orderedBands[i];
+            const inBand = bands.get(band);
+
+            // Alternate direction per band (human-like back-and-forth movement).
+            const leftToRight = i % 2 === 0;
+            inBand.sort((a, b) => {
+                if (a.localY !== b.localY) return a.localY - b.localY;
+
+                const ax = leftToRight ? a.localX : -a.localX;
+                const bx = leftToRight ? b.localX : -b.localX;
+
+                // Tiny jitter to reduce perfect machine-like regularity.
+                const jitter = (Math.random() - 0.5) * 0.35;
+                return (ax - bx) + jitter;
+            });
+
+            out.push(...inBand);
+        }
+
+        return out;
+    }
+
+
+    /**
+     * Spiral ordering inspired by userscript-style strategies.
+     * When `toCenter` is false, starts from center and expands outwards.
+     * When true, reverses to draw from border to center.
+     */
+    _sortSpiralPixels(pixels, toCenter = false) {
+        if (!pixels.length) return pixels;
+
+        const byPos = new Map();
+        for (const px of pixels) byPos.set(`${px.localX},${px.localY}`, px);
+
+        const width = this.template.width;
+        const height = this.template.height;
+        const total = width * height;
+
+        let x = Math.floor(width / 2);
+        let y = Math.floor(height / 2);
+        const dirs = [
+            [1, 0],
+            [0, 1],
+            [-1, 0],
+            [0, -1],
+        ];
+        let dirIndex = 0;
+        let steps = 1;
+
+        const collected = [];
+        const seen = new Set();
+        const inBounds = (xx, yy) => xx >= 0 && xx < width && yy >= 0 && yy < height;
+
+        const tryPush = (xx, yy) => {
+            const key = `${xx},${yy}`;
+            if (seen.has(key)) return;
+            seen.add(key);
+            const p = byPos.get(key);
+            if (p) collected.push(p);
+        };
+
+        while (seen.size < total) {
+            for (let t = 0; t < 2; t++) {
+                for (let i = 0; i < steps; i++) {
+                    if (inBounds(x, y)) tryPush(x, y);
+                    x += dirs[dirIndex][0];
+                    y += dirs[dirIndex][1];
+                }
+                dirIndex = (dirIndex + 1) % 4;
+            }
+            steps++;
+            if (steps > total + 2) break;
+        }
+
+        return toCenter ? collected.reverse() : collected;
+    }
+
     /** Compute pixels needing change, honoring modes. */
     _getMismatchedPixels(currentSkip = 1, colorFilter = null) {
         const [startX, startY, startPx, startPy] = this.coords;
@@ -718,22 +878,32 @@ class WPlacer {
 
         // direction
         switch (this.globalSettings.drawingDirection) {
+            case 'down':
+            case 'ttb':
+                mismatched.sort((a, b) => a.localY - b.localY);
+                break;
+            case 'up':
             case 'btt':
                 mismatched.sort((a, b) => b.localY - a.localY);
                 break;
+            case 'left':
             case 'ltr':
                 mismatched.sort((a, b) => a.localX - b.localX);
                 break;
+            case 'right':
             case 'rtl':
                 mismatched.sort((a, b) => b.localX - a.localX);
                 break;
-            case 'center_out': {
-                const cx = this.template.width / 2,
-                    cy = this.template.height / 2;
-                const d2 = (p) => (p.localX - cx) ** 2 + (p.localY - cy) ** 2;
-                mismatched.sort((a, b) => d2(a) - d2(b));
+            case 'spiral_from_center':
+            case 'center_out':
+                mismatched = this._sortSpiralPixels(mismatched, false);
                 break;
-            }
+            case 'spiral_to_center':
+                mismatched = this._sortSpiralPixels(mismatched, true);
+                break;
+            case 'natural':
+                mismatched = this._sortNaturalPixels(mismatched);
+                break;
             case 'random': {
                 for (let i = mismatched.length - 1; i > 0; i--) {
                     const j = Math.floor(Math.random() * (i + 1));
@@ -741,7 +911,6 @@ class WPlacer {
                 }
                 break;
             }
-            case 'ttb':
             default:
                 mismatched.sort((a, b) => a.localY - b.localY);
                 break;
@@ -1016,7 +1185,7 @@ let currentSettings = {
     keepAliveCooldown: MS.ONE_HOUR,
     dropletReserve: 0,
     antiGriefStandby: 600_000,
-    drawingDirection: 'ttb',
+    drawingDirection: 'natural',
     drawingOrder: 'linear',
     chargeThreshold: 0.5,
     pixelSkip: 1,
@@ -1312,7 +1481,7 @@ class TemplateManager {
 
             try {
                 log('SYSTEM', 'wplacer', `[${this.name}] Checking template status with user ${users[userId].name}...`);
-                await wplacer.login(users[userId].cookies);
+                await wplacer.login(getUserCookiesForLogin(users[userId]));
                 await wplacer.loadTiles();
                 const mismatchedPixels = wplacer._getMismatchedPixels(1, null); // Check all pixels, no skip, no color filter.
                 log('SYSTEM', 'wplacer', `[${this.name}] Check complete. Found ${mismatchedPixels.length} mismatched pixels.`);
@@ -1362,23 +1531,31 @@ class TemplateManager {
                 this.currentRetryDelay = this.initialRetryDelay;
 
                 let colorsToPaint;
-                const isColorMode = currentSettings.drawingOrder === 'color';
+                const drawingOrder = currentSettings.drawingOrder;
+                const isColorMode = drawingOrder === 'color' || drawingOrder === 'randomColor';
+
                 if (isColorMode) {
                     const mismatchedColors = new Set(checkResult.mismatchedPixels.map(p => p.color));
                     const allTemplateColors = this.template.data.flat().filter(c => c > 0);
                     const colorCounts = allTemplateColors.reduce((acc, color) => ({ ...acc, [color]: (acc[color] || 0) + 1 }), {});
-                    
+
                     const customOrder = getColorOrderForTemplate(this.templateId);
                     let sortedColors = [...new Set(allTemplateColors)];
 
-                    if (customOrder && customOrder.length > 0) {
+                    if (customOrder && customOrder.length > 0 && drawingOrder !== 'randomColor') {
                         const orderMap = new Map(customOrder.map((id, index) => [id, index]));
                         sortedColors.sort((a, b) => (orderMap.get(a) ?? 999) - (orderMap.get(b) ?? 999));
                     } else {
                         sortedColors.sort((a, b) => (a === 1 ? -1 : b === 1 ? 1 : colorCounts[a] - colorCounts[b]));
                     }
-                    
+
                     colorsToPaint = sortedColors.filter(c => mismatchedColors.has(c));
+                    if (drawingOrder === 'randomColor') {
+                        for (let i = colorsToPaint.length - 1; i > 0; i--) {
+                            const j = Math.floor(Math.random() * (i + 1));
+                            [colorsToPaint[i], colorsToPaint[j]] = [colorsToPaint[j], colorsToPaint[i]];
+                        }
+                    }
                     if (this.eraseMode && mismatchedColors.has(0)) {
                         colorsToPaint.push(0);
                     }
@@ -1394,14 +1571,22 @@ class TemplateManager {
                     const passPixels = checkResult.mismatchedPixels.filter(p => color === null || p.color === color);
                     if (passPixels.length === 0) continue;
 
-                    for (this.currentPixelSkip = currentSettings.pixelSkip; this.currentPixelSkip >= 1; this.currentPixelSkip /= 2) {
+                    const safePixelSkip = Math.max(1, Number.parseInt(currentSettings.pixelSkip, 10) || 1);
+                    const passSkips = [];
+                    for (let skip = safePixelSkip; skip >= 1; skip = Math.floor(skip / 2)) {
+                        passSkips.push(skip);
+                        if (skip === 1) break;
+                    }
+
+                    for (let passIndex = 0; passIndex < passSkips.length; passIndex++) {
+                        this.currentPixelSkip = passSkips[passIndex];
                         if (!this.running) break;
-                        
+
                         const pixelsInThisPass = passPixels.filter(p => (p.localX + p.localY) % this.currentPixelSkip === 0);
                         if (pixelsInThisPass.length === 0) continue;
 
-                        log('SYSTEM', 'wplacer', `[${this.name}] Starting pass (1/${this.currentPixelSkip}) for color ${isColorMode ? (COLOR_NAMES[color] || 'Erase') : 'All'}`);
-                        
+                        log('SYSTEM', 'wplacer', `[${this.name}] Starting pass (${passIndex + 1}/${passSkips.length}) for color ${isColorMode ? (COLOR_NAMES[color] || 'Erase') : 'All'}`);
+
                         let passComplete = false;
                         while (this.running && !passComplete) {
                             if (this.userQueue.length === 0) {
@@ -1424,7 +1609,7 @@ class TemplateManager {
                                         activeBrowserUsers.add(userId);
                                         const w = new WPlacer({});
                                         try { 
-                                            const info = await w.login(users[userId].cookies);
+                                            const info = await w.login(getUserCookiesForLogin(users[userId]));
                                             users[userId].droplets = info.droplets;
                                         } catch (e) { 
                                             logUserError(e, userId, users[userId].name, 'opportunistic resync'); 
@@ -1466,8 +1651,8 @@ class TemplateManager {
                                 const wplacer = new WPlacer({ template: this.template, coords: this.coords, globalSettings: currentSettings, templateSettings: this, templateName: this.name });
                                 
                                 try {
-                                    const userInfo = await wplacer.login(users[userId].cookies);
-                                    this.status = `Running user ${userInfo.name} | Pass (1/${this.currentPixelSkip})`;
+                                    const userInfo = await wplacer.login(getUserCookiesForLogin(users[userId]));
+                                    this.status = `Running user ${userInfo.name} | Pass (${passIndex + 1}/${passSkips.length})`;
 
                                     await this.handleChargePurchases(wplacer);
 
@@ -1490,7 +1675,7 @@ class TemplateManager {
                                 if (postPaintCheck) {
                                     const remainingPassPixels = postPaintCheck.mismatchedPixels.filter(p => (color === null || p.color === color) && (p.localX + p.localY) % this.currentPixelSkip === 0);
                                     if (remainingPassPixels.length === 0) {
-                                        log('SYSTEM', 'wplacer', `[${this.name}] ✅ Pass (1/${this.currentPixelSkip}) complete.`);
+                                        log('SYSTEM', 'wplacer', `[${this.name}] ✅ Pass (${passIndex + 1}/${passSkips.length}) complete.`);
                                         passComplete = true;
                                     }
                                 }
@@ -1539,6 +1724,86 @@ class TemplateManager {
     }
 }
 
+
+
+const normalizeProxyUrl = (raw) => {
+    if (!raw) return null;
+    let v = String(raw).trim();
+    if (!v) return null;
+    if (!/^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(v)) v = `http://${v}`;
+    return v;
+};
+
+const loadAutoLoginWebshareConfig = () => {
+    if (!existsSync(AUTO_LOGIN_WEBSHARE_CONFIG)) return { apiKey: '', username: '', password: '', pageSize: 100 };
+    try {
+        const cfg = JSON.parse(readFileSync(AUTO_LOGIN_WEBSHARE_CONFIG, 'utf8'));
+        return {
+            apiKey: cfg.apiKey || '',
+            username: cfg.username || '',
+            password: cfg.password || '',
+            pageSize: Number(cfg.pageSize) || 100,
+        };
+    } catch {
+        return { apiKey: '', username: '', password: '', pageSize: 100 };
+    }
+};
+
+const saveAutoLoginWebshareConfig = (cfg) => {
+    const next = {
+        apiKey: cfg.apiKey || '',
+        username: cfg.username || '',
+        password: cfg.password || '',
+        pageSize: Math.max(25, Math.min(100, Number(cfg.pageSize) || 100)),
+    };
+    writeFileSync(AUTO_LOGIN_WEBSHARE_CONFIG, JSON.stringify(next, null, 2));
+    return next;
+};
+
+const fetchWebshareProxies = async (apiKey, pageSize = 100) => {
+    const headers = { Authorization: `Token ${apiKey}` };
+    let url = `https://proxy.webshare.io/api/v2/proxy/list/?mode=direct&page=1&page_size=${pageSize}`;
+    const all = [];
+    while (url) {
+        const imp = new Impit({ ignoreTlsErrors: true });
+        const r = await imp.fetch(url, { method: 'GET', headers });
+        if (!r.ok) {
+            const txt = await r.text();
+            throw new Error(`Webshare error ${r.status}: ${txt.slice(0, 240)}`);
+        }
+        const data = await r.json();
+        for (const p of data.results || []) {
+            const host = p.proxy_address || p.ip_address || p.ip;
+            const port = p.port;
+            const user = p.username;
+            const pass = p.password;
+            if (!host || !port) continue;
+            const auth = user && pass ? `${encodeURIComponent(user)}:${encodeURIComponent(pass)}@` : '';
+            all.push(`http://${auth}${host}:${port}`);
+        }
+        url = data.next;
+    }
+    return [...new Set(all)];
+};
+
+const readAutoLoginProxyStatus = async () => {
+    if (!existsSync(AUTO_LOGIN_PROXY_DB)) return { available: 0, occupied: 0, total: 0, proxies: [] };
+    const py = [
+        'import sqlite3, json',
+        `db = sqlite3.connect(r"${AUTO_LOGIN_PROXY_DB}")`,
+        'rows = db.execute("SELECT proxy_url, status, last_used_by, updated_at FROM proxies ORDER BY status DESC, updated_at DESC").fetchall()',
+        'db.close()',
+        'proxies = [{"proxy": r[0], "status": r[1], "account": r[2], "updatedAt": r[3]} for r in rows]',
+        'occupied = len([p for p in proxies if p.get("status") == "occupied"])',
+        'print(json.dumps({"available": len(proxies)-occupied, "occupied": occupied, "total": len(proxies), "proxies": proxies}))',
+    ].join('; ');
+    try {
+        const out = execSync(`python -c '${py.replace(/'/g, "'\''")}'`, { encoding: 'utf8' });
+        return JSON.parse(out || '{}');
+    } catch {
+        return { available: 0, occupied: 0, total: 0, proxies: [] };
+    }
+};
 
 // ---------- Express setup ----------
 
@@ -1676,13 +1941,13 @@ function streamLogFile(res, filePath, lastSize) {
 
 // Simple polling endpoint for logs (returns full file, or new data if client provides lastSize)
 app.get('/logs', (req, res) => {
-    const filePath = path.join(DATA_DIR, 'logs.log');
+    const filePath = LOGS_FILE
     const lastSize = req.query.lastSize ? parseInt(req.query.lastSize, 10) : 0;
     streamLogFile(res, filePath, lastSize);
 });
 
 app.get('/errors', (req, res) => {
-    const filePath = path.join(DATA_DIR, 'errors.log');
+    const filePath = ERRORS_FILE
     const lastSize = req.query.lastSize ? parseInt(req.query.lastSize, 10) : 0;
     streamLogFile(res, filePath, lastSize);
 });
@@ -1708,15 +1973,80 @@ app.post('/t', (req, res) => {
 // Users
 app.get('/users', (_req, res) => res.json(users));
 
+/**
+ * Batch imports JWT tokens as users.
+ * Each token is converted to a full cookie-object and validated via /me.
+ * Uses bounded concurrency to improve throughput without overwhelming backend.
+ */
+app.post('/users/import', async (req, res) => {
+    const input = Array.isArray(req.body?.tokens) ? req.body.tokens : [];
+    if (!input.length) return res.status(HTTP_STATUS.BAD_REQ).json({ error: 'tokens[] is required' });
+
+    const cleanTokens = [...new Set(input.map((t) => String(t || '').trim()).filter(Boolean))];
+    if (!cleanTokens.length) return res.status(HTTP_STATUS.BAD_REQ).json({ error: 'No valid tokens provided' });
+
+    const existing = new Set(Object.values(users).map((u) => u?.cookies?.j).filter(Boolean));
+    const queue = cleanTokens.filter((token) => !existing.has(token));
+    const skipped = cleanTokens.length - queue.length;
+
+    let imported = 0;
+    const errors = [];
+    const importedUsers = [];
+
+    const worker = async (token) => {
+        const wplacer = new WPlacer({});
+        try {
+            const cookieObjects = [tokenToBackendCookie(token)];
+            const userInfo = await wplacer.login(cookieObjects);
+            const banned = users[userInfo.id]?.suspendedUntil;
+
+            users[userInfo.id] = {
+                name: userInfo.name,
+                cookies: { j: token },
+                cookieObjects,
+                expirationDate: Date.now() + (365 * 24 * 60 * 60 * 1000),
+            };
+            if (banned && banned > Date.now()) users[userInfo.id].suspendedUntil = banned;
+
+            imported++;
+            importedUsers.push({ id: userInfo.id, name: userInfo.name });
+        } catch (error) {
+            errors.push({ tokenPreview: `${token.slice(0, 8)}...`, error: error?.message || 'Unknown error' });
+        }
+    };
+
+    const MAX_CONCURRENT = 5;
+    for (let i = 0; i < queue.length; i += MAX_CONCURRENT) {
+        const chunk = queue.slice(i, i + MAX_CONCURRENT);
+        await Promise.all(chunk.map(worker));
+    }
+
+    saveUsers();
+    return res.json({
+        success: true,
+        total: cleanTokens.length,
+        imported,
+        skipped,
+        failed: errors.length,
+        importedUsers,
+        errors,
+    });
+});
+
+
 app.post('/user', async (req, res) => {
-    if (!req.body?.cookies || !req.body.cookies.j) return res.sendStatus(HTTP_STATUS.BAD_REQ);
+    const incomingCookies = req.body?.cookieObjects || req.body?.cookies;
+    const normalized = normalizeCookiesForJar(incomingCookies);
+    const jCookie = normalized.find((c) => c.name === 'j');
+    if (!jCookie) return res.sendStatus(HTTP_STATUS.BAD_REQ);
     const wplacer = new WPlacer({});
     try {
-        const userInfo = await wplacer.login(req.body.cookies);
+        const userInfo = await wplacer.login(normalized);
         let banned = users[userInfo.id]?.suspendedUntil; // Save any previous suspendedUntil property
         users[userInfo.id] = {
             name: userInfo.name,
-            cookies: req.body.cookies,
+            cookies: { j: jCookie.value },
+            cookieObjects: normalized,
             expirationDate: req.body.expirationDate,
         };
 
@@ -1780,7 +2110,7 @@ app.get('/user/status/:id', async (req, res) => {
     activeBrowserUsers.add(id);
     const wplacer = new WPlacer({});
     try {
-        const userInfo = await wplacer.login(users[id].cookies);
+        const userInfo = await wplacer.login(getUserCookiesForLogin(users[id]));
         setStatusCache(id, userInfo);
         res.status(HTTP_STATUS.OK).json(userInfo);
     } catch (error) {
@@ -1807,7 +2137,7 @@ app.post('/users/status', async (_req, res) => {
         activeBrowserUsers.add(id);
         const wplacer = new WPlacer({});
         try {
-            const userInfo = await wplacer.login(users[id].cookies);
+            const userInfo = await wplacer.login(getUserCookiesForLogin(users[id]));
             setStatusCache(id, userInfo);
             results[id] = { success: true, data: userInfo };
         } catch (error) {
@@ -2039,6 +2369,73 @@ app.post('/reload-proxies', (_req, res) => {
     res.status(HTTP_STATUS.OK).json({ success: true, count: loadedProxies.length });
 });
 
+
+app.get('/autologin/webshare-config', (_req, res) => {
+    const cfg = loadAutoLoginWebshareConfig();
+    res.json({ ...cfg, hasApiKey: Boolean(cfg.apiKey) });
+});
+
+app.put('/autologin/webshare-config', (req, res) => {
+    try {
+        const cfg = saveAutoLoginWebshareConfig(req.body || {});
+        res.json({ success: true, ...cfg, hasApiKey: Boolean(cfg.apiKey) });
+    } catch (e) {
+        res.status(HTTP_STATUS.BAD_REQ).json({ error: e.message });
+    }
+});
+
+app.post('/autologin/webshare-test', async (_req, res) => {
+    try {
+        const cfg = loadAutoLoginWebshareConfig();
+        if (!cfg.apiKey) return res.status(HTTP_STATUS.BAD_REQ).json({ error: 'Missing API key' });
+        const imp = new Impit({ ignoreTlsErrors: true });
+        const r = await imp.fetch('https://proxy.webshare.io/api/v2/profile/', {
+            headers: { Authorization: `Token ${cfg.apiKey}` },
+        });
+        if (!r.ok) {
+            const txt = await r.text();
+            return res.status(r.status).json({ error: `Auth failed: ${txt.slice(0, 240)}` });
+        }
+        const data = await r.json();
+        res.json({ success: true, profile: data });
+    } catch (e) {
+        res.status(HTTP_STATUS.SRV_ERR).json({ error: e.message });
+    }
+});
+
+app.post('/autologin/webshare-sync-proxies', async (_req, res) => {
+    try {
+        const cfg = loadAutoLoginWebshareConfig();
+        if (!cfg.apiKey) return res.status(HTTP_STATUS.BAD_REQ).json({ error: 'Missing API key' });
+        const proxyList = await fetchWebshareProxies(cfg.apiKey, cfg.pageSize || 100);
+        const normalized = proxyList.map(normalizeProxyUrl).filter(Boolean);
+        const payload = normalized.join('\n') + (normalized.length ? '\n' : '');
+        writeFileSync(AUTO_LOGIN_PROXIES, payload);
+        writeFileSync(path.join(DATA_DIR, 'proxies.txt'), payload);
+        loadProxies();
+        res.json({ success: true, count: normalized.length });
+    } catch (e) {
+        res.status(HTTP_STATUS.SRV_ERR).json({ error: e.message });
+    }
+});
+
+app.post('/autologin/prepare-python', (_req, res) => {
+    try {
+        if (!existsSync(AUTO_LOGIN_REQUIREMENTS)) {
+            return res.status(HTTP_STATUS.BAD_REQ).json({ error: 'AUTO_LOGIN/requirements.txt not found' });
+        }
+        const output = execSync(`python -m pip install -r "${AUTO_LOGIN_REQUIREMENTS}"`, { encoding: 'utf8' });
+        res.json({ success: true, output: String(output || '').slice(-2000) });
+    } catch (e) {
+        res.status(HTTP_STATUS.SRV_ERR).json({ error: e.message, output: String(e.stdout || e.stderr || '').slice(-2000) });
+    }
+});
+
+app.get('/autologin/proxy-status', async (_req, res) => {
+    const status = await readAutoLoginProxyStatus();
+    res.json(status);
+});
+
 // Canvas proxy (returns data URI)
 // Return raw PNG; short cache for smoother previews in the UI
 app.get('/canvas', async (req, res) => {
@@ -2233,7 +2630,7 @@ const runKeepAlive = async () => {
         const wplacer = new WPlacer({});
         try {
             // The login method performs a /me request, which is what we need.
-            await wplacer.login(users[id].cookies);
+            await wplacer.login(getUserCookiesForLogin(users[id]));
             log(id, users[id].name, '✔️ Keep-alive check successful.');
             successCount++;
         } catch (error) {
@@ -2364,8 +2761,8 @@ const diffVer = (v1, v2) => {
 
                 // Watch logs.log and errors.log for changes
                 const logFiles = [
-                    { file: path.join(DATA_DIR, 'logs.log'), type: 'logs' },
-                    { file: path.join(DATA_DIR, 'errors.log'), type: 'errors' }
+                    { file: LOGS_FILE, type: 'logs' },
+                    { file: ERRORS_FILE, type: 'errors' }
                 ];
                 for (const { file, type } of logFiles) {
                     let lastSize = 0;

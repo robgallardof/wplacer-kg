@@ -3,9 +3,11 @@ import sys
 import pathlib
 import os
 import json
-import itertools
 import httpx
 import random
+import sqlite3
+from urllib.parse import urlparse
+from contextlib import contextmanager
 
 from camoufox.async_api import AsyncCamoufox
 from playwright.async_api import TimeoutError as PWTimeout, Page, BrowserContext
@@ -18,6 +20,8 @@ CONSENT_BTN_XPATH = '/html/body/div[2]/div[1]/div[2]/c-wiz/main/div[3]/div/div/d
 STATE_FILE = "data.json"
 EMAILS_FILE = "emails.txt"
 PROXIES_FILE = "proxies.txt"
+WEBSHARE_CONFIG_FILE = "webshare_config.json"
+PROXY_DB_FILE = "proxy_pool.db"
 SESSIONS_DIR = pathlib.Path("sessions") # Directory to store session cookies
 POST_URL = "http://127.0.0.1:80/user"  # IMPORTANT: Update this to your wplacer controller's port (e.g., 3000)
 CTRL_HOST, CTRL_PORT = "127.0.0.1", 9151
@@ -45,9 +49,130 @@ def load_proxies(path=PROXIES_FILE):
     if not proxies:
         print("[ERROR] no valid proxies found")
         sys.exit(1)
-    return itertools.cycle(proxies)
+    return proxies
 
-proxy_pool = load_proxies()
+
+
+
+@contextmanager
+def open_proxy_db(path=PROXY_DB_FILE):
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("CREATE TABLE IF NOT EXISTS proxies (proxy_url TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'available', last_used_by TEXT, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+        conn.commit()
+        yield conn
+    finally:
+        conn.close()
+
+def sync_proxy_pool(proxy_list):
+    with open_proxy_db() as conn:
+        existing = {row[0] for row in conn.execute("SELECT proxy_url FROM proxies").fetchall()}
+        incoming = set(proxy_list)
+        for proxy in incoming - existing:
+            conn.execute("INSERT INTO proxies (proxy_url, status, last_used_by) VALUES (?, 'available', NULL)", (proxy,))
+        for proxy in existing - incoming:
+            conn.execute("DELETE FROM proxies WHERE proxy_url = ?", (proxy,))
+        conn.commit()
+
+def claim_proxy_for_account(email, wait_seconds=60, poll_interval=1.0):
+    """
+    Claims one random proxy that is currently available.
+    It NEVER force-resets occupied proxies, so proxies in-use are not duplicated.
+    """
+    deadline = time.time() + max(0, wait_seconds)
+
+    while True:
+        with open_proxy_db() as conn:
+            # Keep stable assignment for the same account if already occupied.
+            row_same = conn.execute(
+                "SELECT proxy_url FROM proxies WHERE status='occupied' AND last_used_by=? LIMIT 1",
+                (email,),
+            ).fetchone()
+            if row_same:
+                proxy = row_same[0]
+                print(f"[PROXY] Reusing occupied proxy for {email}: {proxy}")
+                return proxy
+
+            row = conn.execute(
+                "SELECT proxy_url FROM proxies WHERE status='available' ORDER BY RANDOM() LIMIT 1"
+            ).fetchone()
+
+            if row:
+                proxy = row[0]
+                conn.execute(
+                    "UPDATE proxies SET status='occupied', last_used_by=?, updated_at=CURRENT_TIMESTAMP WHERE proxy_url=?",
+                    (email, proxy),
+                )
+                conn.commit()
+                print(f"[PROXY] Claimed for {email}: {proxy}")
+                return proxy
+
+        if time.time() >= deadline:
+            raise RuntimeError('No available proxies in pool (all currently in use).')
+
+        time.sleep(max(0.05, poll_interval))
+
+def release_proxy(proxy):
+    if not proxy:
+        return
+    with open_proxy_db() as conn:
+        conn.execute("UPDATE proxies SET status='available', last_used_by=NULL, updated_at=CURRENT_TIMESTAMP WHERE proxy_url=?", (proxy,))
+        conn.commit()
+        print(f"[PROXY] Released: {proxy}")
+
+def load_webshare_config(path=WEBSHARE_CONFIG_FILE):
+    p = pathlib.Path(path)
+    if not p.exists():
+        return None
+    try:
+        cfg = json.loads(p.read_text(encoding='utf-8'))
+    except Exception:
+        return None
+    api_key = (cfg.get('apiKey') or '').strip()
+    if not api_key:
+        return None
+    return {'apiKey': api_key, 'pageSize': int(cfg.get('pageSize') or 100)}
+
+async def refresh_proxies_from_webshare():
+    cfg = load_webshare_config()
+    if not cfg:
+        return
+    headers = {'Authorization': f"Token {cfg['apiKey']}"}
+    url = f"https://proxy.webshare.io/api/v2/proxy/list/?mode=direct&page=1&page_size={cfg['pageSize']}"
+    out = []
+    async with httpx.AsyncClient(headers=headers, timeout=30) as client:
+        while url:
+            r = await client.get(url)
+            r.raise_for_status()
+            data = r.json()
+            for item in data.get('results', []):
+                host = item.get('proxy_address') or item.get('ip_address') or item.get('ip')
+                port = item.get('port')
+                user = item.get('username')
+                pwd = item.get('password')
+                if not host or not port:
+                    continue
+                auth = f"{user}:{pwd}@" if user and pwd else ''
+                out.append(f"http://{auth}{host}:{port}")
+            url = data.get('next')
+    uniq = list(dict.fromkeys(out))
+    if uniq:
+        pathlib.Path(PROXIES_FILE).write_text("\n".join(uniq) + "\n", encoding='utf-8')
+        print(f"[INFO] Refreshed {len(uniq)} proxies from Webshare")
+
+def to_browser_proxy(proxy_url: str) -> dict:
+    """Converts a proxy URL string into Playwright/Camoufox proxy settings."""
+    parsed = urlparse(proxy_url)
+    if not parsed.scheme or not parsed.hostname or not parsed.port:
+        raise ValueError(f"Invalid proxy URL format: {proxy_url}")
+
+    proxy_cfg = {"server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"}
+    if parsed.username:
+        proxy_cfg["username"] = parsed.username
+    if parsed.password:
+        proxy_cfg["password"] = parsed.password
+    return proxy_cfg
+
 
 # ===================== GOOGLE LOGIN HELPERS (ASYNC) =====================
 async def find_visible_element_in_frames(page: Page, selector: str):
@@ -95,8 +220,7 @@ async def poll_cookie_in_context(context: BrowserContext, name="j", timeout_s=18
     return None
 
 # ===================== TURNSTILE SOLVER (ASYNC) =====================
-async def get_solved_token(api_url="http://localhost:8080/turnstile", target_url="https://backend.wplace.live", sitekey="0x4AAAAAABpHqZ-6i7uL0nmG"): # CORRECTED sitekey
-    proxy = next(proxy_pool)
+async def get_solved_token(proxy, api_url="http://localhost:8080/turnstile", target_url="https://backend.wplace.live", sitekey="0x4AAAAAABpHqZ-6i7uL0nmG"):
     try:
         async with httpx.AsyncClient() as client:
             params = {"url": target_url, "sitekey": sitekey, "proxy": proxy}
@@ -129,8 +253,17 @@ async def get_solved_token(api_url="http://localhost:8080/turnstile", target_url
         raise RuntimeError(f"An unexpected error occurred in get_solved_token: {e}")
 
 # ===================== LOGIN (ASYNC) =====================
-async def login_once(email, password, recovery_email=None):
+async def login_once(email, password, recovery_email=None, proxy=None):
+    if not proxy:
+        raise ValueError("A proxy must be provided for account login")
+
     session_path = SESSIONS_DIR / f"{email}.session.json"
+    extension_path = pathlib.Path(__file__).resolve().parent.parent / "LOAD_UNPACKED"
+
+    if not extension_path.exists():
+        raise FileNotFoundError(f"Extension folder not found: {extension_path}")
+
+    browser_proxy = to_browser_proxy(proxy)
     
     print(f"[{email}] 3. Launching browser on YOUR LOCAL IP...")
     custom_fonts = ["Arial", "Helvetica", "Times New Roman"]
@@ -140,6 +273,8 @@ async def login_once(email, password, recovery_email=None):
         humanize=True,
         block_images=False,
         disable_coop=True,
+        addons=[str(extension_path)],
+        proxy=browser_proxy,
         screen=Screen(min_width=1920, max_width=1920, min_height=1080, max_height=1080),
         fonts=custom_fonts,
         os=["windows", "macos", "linux"],
@@ -169,18 +304,17 @@ async def login_once(email, password, recovery_email=None):
                 print(f"[{email}] 4c. Session expired or invalid. Proceeding with full login.")
 
             print(f"[{email}] 1. Getting captcha token (using proxy)...")
-            token = await get_solved_token()
+            token = await get_solved_token(proxy)
             backend_url = f"https://backend.wplace.live/auth/google?token={token}"
 
             print(f"[{email}] 2. Getting Google login URL (using proxy)...")
-            proxy_http = next(proxy_pool)
-            proxies = {"http://": proxy_http, "https://": proxy_http}
+            proxies = {"http://": proxy, "https://": proxy}
             try:
                 async with httpx.AsyncClient(proxies=proxies, follow_redirects=True) as client:
                     r = await client.get(backend_url, timeout=15)
                     google_login_url = str(r.url)
             except Exception as e:
-                raise RuntimeError(f"Failed to get Google login URL via proxy {proxy_http}: {e}")
+                raise RuntimeError(f"Failed to get Google login URL via proxy {proxy}: {e}")
 
             print(f"[{email}] 5. Navigating to Google login page...")
             await page.goto(google_login_url, wait_until="domcontentloaded")
@@ -368,7 +502,9 @@ async def process_account(state, idx):
     save_state(state)
     acc["tries"] += 1
     try:
-        c = await login_once(acc["email"], acc["password"], acc.get("recovery_email"))
+        account_proxy = claim_proxy_for_account(acc["email"])
+        acc["proxy"] = account_proxy
+        c = await login_once(acc["email"], acc["password"], acc.get("recovery_email"), proxy=account_proxy)
         if not c:
             raise RuntimeError("cookie_not_found")
         
@@ -391,6 +527,7 @@ async def process_account(state, idx):
         acc["last_error"] = f"{type(e).__name__}: {e}"
         print(f"[ERR] {acc['email']} | {acc['last_error']}")
     finally:
+        release_proxy(acc.get("proxy"))
         save_state(state)
         await tor_newnym()
         await asyncio.sleep(3)
@@ -407,7 +544,15 @@ def indices_by_status(state, statuses: set[str]) -> list[int]:
 async def main():
     # Create the sessions directory if it doesn't exist
     SESSIONS_DIR.mkdir(exist_ok=True)
-    
+
+    try:
+        await refresh_proxies_from_webshare()
+    except Exception as e:
+        print(f"[WARN] Webshare refresh failed: {e}")
+
+    proxy_list = load_proxies()
+    sync_proxy_pool(proxy_list)
+
     state = load_state()
     q = indices_by_status(state, {"error", "errored"}) + indices_by_status(state, {"pending"})
     seen = set()
