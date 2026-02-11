@@ -9,6 +9,8 @@ const userForm = $('userForm');
 const scookie = $('scookie');
 const jcookie = $('jcookie');
 const submitUser = $('submitUser');
+const batchTokensInput = $('batchTokensInput');
+const importBatchTokensBtn = $('importBatchTokensBtn');
 const deleteBannedUsersBtn = $('deleteBannedUsersBtn');
 const manageUsers = $('manageUsers');
 const manageUsersTitle = $('manageUsersTitle');
@@ -71,6 +73,19 @@ const proxyRotationMode = $('proxyRotationMode');
 const proxyCount = $('proxyCount');
 const reloadProxiesBtn = $('reloadProxiesBtn');
 const logProxyUsage = $('logProxyUsage');
+const openWebshareModalBtn = $('openWebshareModalBtn');
+const preparePythonEnvBtn = $('preparePythonEnvBtn');
+const autologinProxyStats = $('autologinProxyStats');
+const autologinProxyList = $('autologinProxyList');
+const webshareModal = $('webshareModal');
+const webshareApiKey = $('webshareApiKey');
+const webshareUsername = $('webshareUsername');
+const websharePassword = $('websharePassword');
+const saveWebshareConfigBtn = $('saveWebshareConfigBtn');
+const testWebshareBtn = $('testWebshareBtn');
+const syncWebshareProxiesBtn = $('syncWebshareProxiesBtn');
+const closeWebshareModalBtn = $('closeWebshareModalBtn');
+const webshareTestResult = $('webshareTestResult');
 
 // Logs Viewer
 const openLogsViewer = $('openLogsViewer');
@@ -1187,6 +1202,36 @@ importJTokensInput.addEventListener('change', async (event) => { //CREDITS - Mot
     event.target.value = ''; // Reset the input
 });
 
+importBatchTokensBtn?.addEventListener('click', async () => {
+    const raw = (batchTokensInput?.value || '').trim();
+    if (!raw) {
+        showMessage('Error', 'Paste at least one token in the batch box.');
+        return;
+    }
+
+    const tokens = [...new Set(raw.split(/\r?\n/).map((t) => t.trim()).filter((t) => t && !t.startsWith('#')))];
+    if (!tokens.length) {
+        showMessage('Error', 'No valid tokens detected.');
+        return;
+    }
+
+    importBatchTokensBtn.disabled = true;
+    importBatchTokensBtn.innerHTML = '<img src="icons/restart.svg" alt="" class="spin"> Importing...';
+
+    try {
+        const { data } = await axios.post('/users/import', { tokens });
+        const summary = `Imported: ${data.imported} | Skipped: ${data.skipped} | Failed: ${data.failed}`;
+        showMessage('Batch import completed', summary);
+        if (batchTokensInput) batchTokensInput.value = '';
+        openManageUsers.click();
+    } catch (error) {
+        handleError(error);
+    } finally {
+        importBatchTokensBtn.disabled = false;
+        importBatchTokensBtn.innerHTML = '<img src="icons/upload.svg" alt="">Import Batch Tokens';
+    }
+});
+
 openManageUsers.addEventListener('click', () => {
     userList.innerHTML = '';
     userForm.reset();
@@ -1712,6 +1757,37 @@ openManageTemplates.addEventListener('click', () => {
     changeTab('manageTemplates');
 });
 
+
+
+const loadAutoLoginProxyStatus = async () => {
+    try {
+        const { data } = await axios.get('/autologin/proxy-status');
+        autologinProxyStats.textContent = `AUTO_LOGIN pool: ${data.available} available / ${data.occupied} occupied / ${data.total} total.`;
+        if (!data.proxies || data.proxies.length === 0) {
+            autologinProxyList.textContent = 'No proxies in AUTO_LOGIN proxy DB yet.';
+            return;
+        }
+        autologinProxyList.innerHTML = data.proxies
+            .slice(0, 120)
+            .map((p) => `<div>[${p.status}] ${p.proxy}${p.account ? ` — ${p.account}` : ''}</div>`)
+            .join('');
+    } catch (e) {
+        autologinProxyStats.textContent = 'Could not read AUTO_LOGIN proxy status.';
+        autologinProxyList.textContent = '';
+    }
+};
+
+const loadWebshareConfig = async () => {
+    try {
+        const { data } = await axios.get('/autologin/webshare-config');
+        webshareApiKey.value = data.apiKey || '';
+        webshareUsername.value = data.username || '';
+        websharePassword.value = data.password || '';
+    } catch (e) {
+        webshareTestResult.textContent = `Error loading config: ${e?.message || e}`;
+    }
+};
+
 openSettings.addEventListener('click', async () => {
     try {
         const response = await axios.get('/settings');
@@ -1726,6 +1802,7 @@ openSettings.addEventListener('click', async () => {
         logProxyUsage.checked = currentSettings.logProxyUsage;
         proxyCount.textContent = `${currentSettings.proxyCount} proxies loaded from file.`;
         proxyFormContainer.style.display = proxyEnabled.checked ? 'block' : 'none';
+        await loadAutoLoginProxyStatus();
 
         accountCooldown.value = currentSettings.accountCooldown / 1000;
         purchaseCooldown.value = currentSettings.purchaseCooldown / 1000;
@@ -1768,12 +1845,72 @@ proxyRotationMode.addEventListener('change', () => {
     saveSetting({ proxyRotationMode: proxyRotationMode.value });
 });
 
+
+openWebshareModalBtn?.addEventListener('click', async () => {
+    webshareModal.classList.remove('hidden');
+    webshareModal.style.display = 'flex';
+    webshareTestResult.textContent = 'Load Webshare config...';
+    await loadWebshareConfig();
+    webshareTestResult.textContent = '';
+});
+
+closeWebshareModalBtn?.addEventListener('click', () => {
+    webshareModal.classList.add('hidden');
+    webshareModal.style.display = 'none';
+});
+
+saveWebshareConfigBtn?.addEventListener('click', async () => {
+    try {
+        await axios.put('/autologin/webshare-config', {
+            apiKey: webshareApiKey.value.trim(),
+            username: webshareUsername.value.trim(),
+            password: websharePassword.value,
+        });
+        webshareTestResult.textContent = 'Config saved.';
+    } catch (e) {
+        webshareTestResult.textContent = `Save failed: ${e?.response?.data?.error || e.message}`;
+    }
+});
+
+testWebshareBtn?.addEventListener('click', async () => {
+    webshareTestResult.textContent = 'Testing API key...';
+    try {
+        const { data } = await axios.post('/autologin/webshare-test');
+        webshareTestResult.textContent = `OK. Plan/Profile loaded: ${JSON.stringify(data.profile).slice(0, 140)}...`;
+    } catch (e) {
+        webshareTestResult.textContent = `Test failed: ${e?.response?.data?.error || e.message}`;
+    }
+});
+
+syncWebshareProxiesBtn?.addEventListener('click', async () => {
+    webshareTestResult.textContent = 'Syncing proxies from Webshare...';
+    try {
+        const { data } = await axios.post('/autologin/webshare-sync-proxies');
+        webshareTestResult.textContent = `Synced ${data.count} proxies.`;
+        proxyCount.textContent = `${data.count} proxies loaded from file.`;
+        await loadAutoLoginProxyStatus();
+    } catch (e) {
+        webshareTestResult.textContent = `Sync failed: ${e?.response?.data?.error || e.message}`;
+    }
+});
+
+preparePythonEnvBtn?.addEventListener('click', async () => {
+    try {
+        showMessage('Info', 'Preparing Python environment, this may take a bit...');
+        const { data } = await axios.post('/autologin/prepare-python');
+        showMessage('Success', `Python environment ready. ${data.output ? 'Output captured.' : ''}`);
+    } catch (e) {
+        showMessage('Error', e?.response?.data?.error || e.message);
+    }
+});
+
 reloadProxiesBtn.addEventListener('click', async () => {
     try {
         const response = await axios.post('/reload-proxies');
         if (response.data.success) {
             proxyCount.textContent = `${response.data.count} proxies reloaded from file.`;
             showMessage('Success', 'Proxies reloaded successfully!');
+            await loadAutoLoginProxyStatus();
         }
     } catch (error) {
         handleError(error);

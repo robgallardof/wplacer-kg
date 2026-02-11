@@ -8,12 +8,12 @@
     <link rel="stylesheet" href="styles/index.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.11.0/axios.min.js"
         referrerpolicy="no-referrer"></script>
-    <title>wplacer</title>
+    <title>KGlacer</title>
 </head>
 
 <body>
     <div class="container">
-        <h1><img src="icons/favicon.png" alt="wplacer logo">wplacer</h1>
+        <h1><img src="icons/favicon.png" alt="KGlacer logo">KGlacer</h1>
 
         <div id="main">
             <button id="openManageUsers" class="primary-button"><img src="icons/manageUsers.svg" alt="">Manage
@@ -57,6 +57,14 @@
                 <button type="submit" id="submitUser" class="primary-button"><img src="icons/addUser.svg" alt="">Add
                     User</button>
             </form>
+            <div class="info-box" style="text-align:left; margin-top:10px;">
+                <b>Batch import tokens</b><br>
+                Paste one JWT (j) token per line.
+            </div>
+            <textarea id="batchTokensInput" rows="6" placeholder="token1
+token2
+token3" style="width:100%; margin-top:8px;"></textarea>
+            <button id="importBatchTokensBtn" class="primary-button" style="margin-top:8px;"><img src="icons/upload.svg" alt="">Import Batch Tokens</button>
             <button id="deleteBannedUsersBtn" class="destructive-button" style="margin-top: 16px;"><img src="icons/remove.svg" alt="">Delete All Banned Accounts</button>
 
             <h2 class="section-title" id="manageUsersTitle">Existing Users</h2>
@@ -197,11 +205,13 @@
 
             <label for="drawingDirectionSelect">Drawing Direction</label>
             <select id="drawingDirectionSelect">
-                <option value="ttb">Top to Bottom</option>
-                <option value="btt">Bottom to Top</option>
-                <option value="ltr">Left to Right</option>
-                <option value="rtl">Right to Left</option>
-                <option value="center_out">Center Out</option>
+                <option value="natural">Natural (Recommended)</option>
+                <option value="down">Down (Top to Bottom)</option>
+                <option value="up">Up (Bottom to Top)</option>
+                <option value="left">Left to Right</option>
+                <option value="right">Right to Left</option>
+                <option value="spiral_from_center">Spiral From Center</option>
+                <option value="spiral_to_center">Spiral To Center</option>
                 <option value="random">Random Pixels</option>
             </select>
 
@@ -265,6 +275,10 @@
                 </select>
                 <div id="proxyCount" class="info-box" style="text-align: center; margin-top: 10px;"></div>
                 <button type="button" id="reloadProxiesBtn" class="secondary-button"><img src="icons/restart.svg" alt="">Reload Proxies from File</button>
+                <button type="button" id="openWebshareModalBtn" class="secondary-button"><img src="icons/settings.svg" alt="">Webshare / Camoufox Setup</button>
+                <button type="button" id="preparePythonEnvBtn" class="secondary-button"><img src="icons/download.svg" alt="">Prepare Python Env</button>
+                <div id="autologinProxyStats" class="info-box" style="text-align:left; margin-top: 10px;"></div>
+                <div id="autologinProxyList" class="info-box" style="text-align:left; max-height: 180px; overflow:auto; margin-top: 10px;"></div>
             </div>
 
             <button onclick="changeTab('main');" class="secondary-button"><img src="icons/return.svg"
@@ -272,23 +286,32 @@
         </div>
 
         <p class="credits">
-        Made by 
-        <a href="https://github.com/luluwaffless">
-            luluwaffless <img src="https://avatars.githubusercontent.com/u/96322105?v=4" alt="GitHub">
-        </a> 
-        and 
-        <a href="https://github.com/JinxTheCatto">
-            Jinx <img src="https://avatars.githubusercontent.com/u/59938808?v=4.png" alt="GitHub">
-        </a>
-
-        <!-- Small GIF -->
-        <img 
-            src="icons/jazzhands.webp" 
-            alt="Cute cat" 
-            class="credits-gif">
+        KGlacer by <a href="#">King Gallardo</a>
+        <img src="icons/jazzhands.webp" alt="KGlacer mascot" class="credits-gif">
         </p>
 
     </div>
+
+
+    <div id="webshareModal" class="hidden" style="position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 1200; align-items: center; justify-content: center;">
+        <div style="background: #161616; width: min(92vw, 620px); border-radius: 12px; padding: 18px; border:1px solid #2b2b2b;">
+            <h3 style="margin-top:0;">Webshare / Camoufox Proxy Modal</h3>
+            <label for="webshareApiKey">API Key</label>
+            <input id="webshareApiKey" type="password" placeholder="Token ...">
+            <label for="webshareUsername">Username (optional)</label>
+            <input id="webshareUsername" type="text" placeholder="Webshare username">
+            <label for="websharePassword">Password (optional)</label>
+            <input id="websharePassword" type="password" placeholder="Webshare password">
+            <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
+                <button type="button" id="saveWebshareConfigBtn" class="primary-button">Save</button>
+                <button type="button" id="testWebshareBtn" class="secondary-button">Test</button>
+                <button type="button" id="syncWebshareProxiesBtn" class="secondary-button">Sync Proxy List</button>
+                <button type="button" id="closeWebshareModalBtn" class="secondary-button">Close</button>
+            </div>
+            <div id="webshareTestResult" class="info-box" style="margin-top:10px;"></div>
+        </div>
+    </div>
+
 
     <div id="messageBoxOverlay" class="hidden">
         <div id="messageBox">

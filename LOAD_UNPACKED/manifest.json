@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "wplacer",
+  "name": "KGlacer Companion",
   "version": "4.4",
-  "description": "Automatically sends session and Turnstile tokens from wplace.live to a wplacer server.",
+  "description": "Automatically sends session and Turnstile tokens from wplace.live to a KGlacer server.",
   "permissions": [
     "storage",
     "cookies",
@@ -49,7 +49,9 @@
         "solver.wasm/pawtect_wasm_bg.*.wasm",
         "solver.wasm/pawtect_wasm_bg.wasm"
       ],
-      "matches": ["https://wplace.live/*"]
+      "matches": [
+        "https://wplace.live/*"
+      ]
     }
   ]
 }
