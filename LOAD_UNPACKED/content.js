@@ -8,6 +8,53 @@ const OVERLAY_HEALTHCHECK_MS = 2500;
 // --- Main Logic ---
 console.log('✅ kglacer: Content script loaded.');
 
+// --- Turnstile token bridge ---
+const TURNSTILE_REQUEST_TYPE = 'WPLACER_TURNSTILE_REQUEST';
+const TURNSTILE_TOKEN_TYPE = 'WPLACER_TURNSTILE_TOKEN';
+
+let turnstileInjected = false;
+
+const injectPageScript = (scriptFile) => {
+    try {
+        const script = document.createElement('script');
+        script.src = chrome.runtime.getURL(scriptFile);
+        script.async = false;
+        (document.head || document.documentElement).appendChild(script);
+        script.onload = () => script.remove();
+        script.onerror = () => {
+            console.error(`kglacer: Failed to inject ${scriptFile}`);
+            try { script.remove(); } catch {}
+        };
+        return true;
+    } catch (error) {
+        console.error(`kglacer: Could not inject ${scriptFile}:`, error);
+        return false;
+    }
+};
+
+const ensureTurnstileBridge = () => {
+    if (turnstileInjected) return;
+    turnstileInjected = injectPageScript('turnstile_inject.js');
+};
+
+window.addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    const data = event.data;
+    if (!data || data.type !== TURNSTILE_TOKEN_TYPE) return;
+
+    if (data.token && typeof data.token === 'string') {
+        chrome.runtime.sendMessage({ action: 'tokenPairReceived', t: data.token }, () => {
+            if (chrome.runtime.lastError) {
+                console.warn('kglacer: Failed to deliver generated Turnstile token:', chrome.runtime.lastError.message);
+            }
+        });
+    } else if (data.error) {
+        console.warn('kglacer: Turnstile generator returned an error:', data.error);
+    }
+});
+
+ensureTurnstileBridge();
+
 // --- Overlay UI (full-page) ---
 // --- Overlay UI (full-page) ---
 (() => {
@@ -378,6 +425,12 @@ chrome.runtime.onMessage.addListener((request) => {
         console.log('kglacer: Received reload command from background script. Reloading now...');
         sessionStorage.setItem(RELOAD_FLAG, 'true');
         location.reload();
+        return;
+    }
+
+    if (request.action === 'generateTurnstileToken') {
+        ensureTurnstileBridge();
+        window.postMessage({ type: TURNSTILE_REQUEST_TYPE }, '*');
     }
 });
 

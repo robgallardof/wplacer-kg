@@ -41,7 +41,10 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": [],
+      "resources": [
+        "turnstile_inject.js",
+        "pawtect_inject.js"
+      ],
       "matches": [
         "https://wplace.live/*"
       ]
