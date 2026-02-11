@@ -15,8 +15,16 @@
     <div class="container">
         <header class="app-header">
             <h1><img src="icons/favicon.png" alt="KGlacer logo">KGlacer</h1>
-            <p class="app-subtitle">Control panel de automatización para wplace</p>
-            <span class="version-badge">Version 1.0</span>
+            <p id="appSubtitle" class="app-subtitle">Automation control panel for wplace</p>
+            <div class="header-controls">
+                <label for="languageSelect" class="sr-only">Language</label>
+                <select id="languageSelect" class="header-select">
+                    <option value="en">EN</option>
+                    <option value="es">ES</option>
+                </select>
+                <button id="themeToggle" type="button" class="secondary-button compact-button">Light Mode</button>
+                <span class="version-badge">Version 1.0</span>
+            </div>
         </header>
 
         <div id="main">
@@ -30,8 +38,20 @@
             <button id="openSettings" class="primary-button"><img src="icons/settings.svg" alt="">Settings</button>
         </div>
 
+        <div id="mainCamoufoxActions" class="info-box" style="text-align:left; margin-top: 12px;">
+            <b id="camoufoxSetupTitle">Camoufox Setup</b><br>
+            <span id="camoufoxSetupDesc">Prepare the environment once, then sync proxies from here.</span>
+            <div class="main-camoufox-actions">
+                <button type="button" id="preparePythonEnvMainBtn" class="secondary-button"><img src="icons/download.svg" alt="">Prepare Python Env</button>
+                <button type="button" id="openWebshareModalMainBtn" class="secondary-button"><img src="icons/settings.svg" alt="">Webshare / Camoufox Setup</button>
+            </div>
+        </div>
+
         <div id="logsViewer" style="display: none;">
-            <h2>Realtime System Logs</h2>
+            <div class="section-top-actions">
+                <button onclick="changeTab('main');" class="secondary-button tab-return-button"><img src="icons/return.svg" alt="">Return</button>
+            </div>
+            <h2 id="logsHeading">Realtime System Logs</h2>
             <input id="logsSearchInput" class="logs-search" type="text" placeholder="Search text...">
             <div class="logs-controls">
                 <button id="showLogsBtn" class="secondary-button">Logs</button>
@@ -47,12 +67,13 @@
                 </select>
             </div>
             <div id="logsContainer" class="logs-container"><span class="logs-placeholder">Loading logs...</span></div>
-            <button onclick="changeTab('main');" class="secondary-button"><img src="icons/return.svg"
-                    alt="">Return</button>
         </div>
 
         <div id="manageUsers" style="display: none;">
-            <h2>User Management</h2>
+            <div class="section-top-actions">
+                <button onclick="changeTab('main');" class="secondary-button tab-return-button"><img src="icons/return.svg" alt="">Return</button>
+            </div>
+            <h2 id="usersHeading">User Management</h2>
             <form id="userForm">
                 <label for="jcookie">JWT Cookie (j)</label>
                 <input type="password" id="jcookie" required>
@@ -85,11 +106,12 @@ token3" style="width:100%; margin-top:8px;"></textarea>
             </div>
             <div id="userList"></div>
 
-            <button onclick="changeTab('main');" class="secondary-button"><img src="icons/return.svg"
-                    alt="">Return</button>
         </div>
 
         <div id="addTemplate" style="display: none;">
+            <div class="section-top-actions">
+                <button onclick="changeTab('main'); resetTemplateForm();" class="secondary-button tab-return-button"><img src="icons/return.svg" alt="">Return</button>
+            </div>
             <h2 id="templateFormTitle">Create Template</h2>
             <div class="info-box">
                 <b>Tip:</b> For best results, process your image through the <a
@@ -181,31 +203,25 @@ token3" style="width:100%; margin-top:8px;"></textarea>
                 <button type="submit" id="submitTemplate" class="primary-button"><img src="icons/addTemplate.svg"
                         alt="">Add Template</button>
             </form>
-            <button onclick="changeTab('main'); resetTemplateForm();" class="secondary-button"><img
-                    src="icons/return.svg" alt="">Return</button>
         </div>
 
         <div id="manageTemplates" style="display: none;">
-            <h2>Template Operations</h2>
+            <div class="section-top-actions">
+                <button onclick="changeTab('main');" class="secondary-button tab-return-button"><img src="icons/return.svg" alt="">Return</button>
+            </div>
+            <h2 id="templatesHeading">Template Operations</h2>
             <div class="template-actions-all">
                 <button id="startAll" class="primary-button"><img src="icons/playAll.svg" alt="">Start All Templates</button>
                 <button id="stopAll" class="secondary-button"><img src="icons/pauseAll.svg" alt="">Stop All Templates</button>
             </div>
             <div id="templateList"></div>
-            <button onclick="changeTab('main');" class="secondary-button"><img src="icons/return.svg"
-                    alt="">Return</button>
         </div>
 
         <div id="settings" style="display: none;">
-            <h2>General Settings</h2>
-
-            <div class="setting-toggle">
-                <label for="openBrowserOnStart">Open Browser on Startup</label>
-                <label class="switch">
-                    <input id="openBrowserOnStart" name="openBrowserOnStart" type="checkbox">
-                    <span class="slider"></span>
-                </label>
+            <div class="section-top-actions">
+                <button onclick="changeTab('main');" class="secondary-button tab-return-button"><img src="icons/return.svg" alt="">Return</button>
             </div>
+            <h2 id="settingsHeading">General Settings</h2>
 
             <label for="drawingDirectionSelect">Drawing Direction</label>
             <select id="drawingDirectionSelect">
@@ -280,13 +296,10 @@ token3" style="width:100%; margin-top:8px;"></textarea>
                 <div id="proxyCount" class="info-box" style="text-align: center; margin-top: 10px;"></div>
                 <button type="button" id="reloadProxiesBtn" class="secondary-button"><img src="icons/restart.svg" alt="">Reload Proxies from File</button>
                 <button type="button" id="openWebshareModalBtn" class="secondary-button"><img src="icons/settings.svg" alt="">Webshare / Camoufox Setup</button>
-                <button type="button" id="preparePythonEnvBtn" class="secondary-button"><img src="icons/download.svg" alt="">Prepare Python Env</button>
                 <div id="autologinProxyStats" class="info-box" style="text-align:left; margin-top: 10px;"></div>
                 <div id="autologinProxyList" class="info-box" style="text-align:left; max-height: 180px; overflow:auto; margin-top: 10px;"></div>
             </div>
 
-            <button onclick="changeTab('main');" class="secondary-button"><img src="icons/return.svg"
-                    alt="">Return</button>
         </div>
 
         <p class="credits">

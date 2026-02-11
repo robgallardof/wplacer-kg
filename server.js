@@ -12,7 +12,7 @@ process.on('uncaughtException', (err) => {
 });
 import { existsSync, readFileSync, writeFileSync, mkdirSync, createWriteStream, unlinkSync } from 'node:fs';
 import { Image, createCanvas } from 'canvas';
-import { exec, execSync, spawn } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { CookieJar } from 'tough-cookie';
 import gradient from 'gradient-string';
@@ -133,11 +133,6 @@ function broadcastLog(type, line) {
 
 // ---------- Small utilities ----------
 
-/** Cross-platform open-in-browser. */
-function openBrowser(url) {
-    const start = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
-    exec(`${start} ${url}`);
-}
 
 /** Human-readable duration. */
 const duration = (ms) => {
@@ -1347,7 +1342,6 @@ let currentSettings = {
     proxyEnabled: false,
     proxyRotationMode: 'sequential', // 'sequential' | 'random'
     logProxyUsage: false,
-    openBrowserOnStart: true,
 };
 if (existsSync(SETTINGS_FILE)) {
     currentSettings = { ...currentSettings, ...loadJSON(SETTINGS_FILE) };
@@ -2956,7 +2950,6 @@ const diffVer = (v1, v2) => {
             const url = `http://localhost:${port}`;
             console.log(`✅ Server listening on ${url}`);
             console.log('   Open the web UI in your browser to start.');
-            if (currentSettings.openBrowserOnStart) openBrowser(url);
 
             setInterval(runKeepAlive, currentSettings.keepAliveCooldown);
             log('SYSTEM', 'KeepAlive', `🔄 User session keep-alive started. Interval: ${duration(currentSettings.keepAliveCooldown)}.`);
