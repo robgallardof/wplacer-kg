@@ -31,3 +31,11 @@ test('mid-batch token refresh keeps progress and rotates token', () => {
     );
     assert.match(serverSource, /TokenManager\.invalidateToken\(\);/, 'Expected token invalidation when refresh is required');
 });
+
+test('paint requests include turnstile token in the payload', () => {
+    assert.match(
+        serverSource,
+        /executePaint:\s*\(tx, ty, body\)\s*=>\s*this\._executePaint\(tx, ty,\s*\{\s*\.\.\.body,\s*t:\s*this\.token\s*\}\)/,
+        'Expected paint payloads to include the current turnstile token (t)'
+    );
+});
