@@ -11,8 +11,12 @@ console.log('✅ kglacer: Content script loaded.');
 // --- Turnstile token bridge ---
 const TURNSTILE_REQUEST_TYPE = 'WPLACER_TURNSTILE_REQUEST';
 const TURNSTILE_TOKEN_TYPE = 'WPLACER_TURNSTILE_TOKEN';
+const PAWTECT_REQUEST_TYPE = 'WPLACER_PAWTECT_REQUEST';
+const PAWTECT_TOKEN_TYPE = 'WPLACER_PAWTECT_TOKEN';
 
 let turnstileInjected = false;
+let pawtectInjected = false;
+let pendingTokenDispatch = null;
 
 const injectPageScript = (scriptFile) => {
     try {
@@ -37,23 +41,103 @@ const ensureTurnstileBridge = () => {
     turnstileInjected = injectPageScript('turnstile_inject.js');
 };
 
+const ensurePawtectBridge = () => {
+    if (pawtectInjected) return;
+    pawtectInjected = injectPageScript('pawtect_inject.js');
+};
+
+const randomHex = (bytes) => {
+    const array = new Uint8Array(bytes);
+    crypto.getRandomValues(array);
+    return Array.from(array, (value) => value.toString(16).padStart(2, '0')).join('');
+};
+
+const buildPawtectPayload = (turnstileToken) => {
+    const fp = randomHex(16);
+    const px = Math.floor(Math.random() * 1000);
+    const py = Math.floor(Math.random() * 1000);
+
+    return {
+        url: 'https://backend.wplace.live/s0/pixel/1/1',
+        body: {
+            colors: [0],
+            coords: [px, py],
+            fp,
+            t: turnstileToken
+        },
+        fp
+    };
+};
+
+const sendTokenPayload = ({ t, pawtect = null, fp = null }) => {
+    chrome.runtime.sendMessage({ action: 'tokenPairReceived', t, pawtect, fp }, () => {
+        if (chrome.runtime.lastError) {
+            console.warn('kglacer: Failed to deliver token payload:', chrome.runtime.lastError.message);
+        }
+    });
+};
+
+const handleTurnstileToken = (token) => {
+    if (!token || typeof token !== 'string') return;
+
+    if (pendingTokenDispatch?.timeoutId) {
+        clearTimeout(pendingTokenDispatch.timeoutId);
+    }
+
+    const payload = buildPawtectPayload(token);
+    const reqId = `pawtect-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+    pendingTokenDispatch = {
+        reqId,
+        t: token,
+        fp: payload.fp,
+        timeoutId: setTimeout(() => {
+            if (!pendingTokenDispatch || pendingTokenDispatch.reqId !== reqId) return;
+            console.warn('kglacer: Pawtect generation timed out, sending Turnstile token only.');
+            sendTokenPayload({ t: token });
+            pendingTokenDispatch = null;
+        }, 3500)
+    };
+
+    ensurePawtectBridge();
+    window.postMessage({ type: PAWTECT_REQUEST_TYPE, reqId, url: payload.url, body: payload.body }, '*');
+};
+
 window.addEventListener('message', (event) => {
     if (event.source !== window) return;
     const data = event.data;
-    if (!data || data.type !== TURNSTILE_TOKEN_TYPE) return;
+    if (!data) return;
+
+    if (data.type === PAWTECT_TOKEN_TYPE) {
+        if (!pendingTokenDispatch || data.reqId !== pendingTokenDispatch.reqId) return;
+        clearTimeout(pendingTokenDispatch.timeoutId);
+
+        if (data.token && typeof data.token === 'string') {
+            sendTokenPayload({
+                t: pendingTokenDispatch.t,
+                pawtect: data.token,
+                fp: data.fp || pendingTokenDispatch.fp
+            });
+        } else {
+            console.warn('kglacer: Pawtect generator did not return a token, sending Turnstile only.');
+            sendTokenPayload({ t: pendingTokenDispatch.t });
+        }
+
+        pendingTokenDispatch = null;
+        return;
+    }
+
+    if (data.type !== TURNSTILE_TOKEN_TYPE) return;
 
     if (data.token && typeof data.token === 'string') {
-        chrome.runtime.sendMessage({ action: 'tokenPairReceived', t: data.token }, () => {
-            if (chrome.runtime.lastError) {
-                console.warn('kglacer: Failed to deliver generated Turnstile token:', chrome.runtime.lastError.message);
-            }
-        });
+        handleTurnstileToken(data.token);
     } else if (data.error) {
         console.warn('kglacer: Turnstile generator returned an error:', data.error);
     }
 });
 
 ensureTurnstileBridge();
+ensurePawtectBridge();
 
 // --- Overlay UI (full-page) ---
 // --- Overlay UI (full-page) ---
