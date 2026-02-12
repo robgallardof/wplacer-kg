@@ -10,6 +10,7 @@ let tokenWaitStartTime = null;
 let autoReloadEnabled = true;
 let autoClearEnabled = true;
 let isReloading = false; // Prevent multiple simultaneous reloads
+let lastDeliveredTokenPair = null;
 
 const storageGet = (keys) => new Promise((resolve) => chrome.storage.local.get(keys, resolve));
 const queryTabs = (query) => new Promise((resolve) => chrome.tabs.query(query, resolve));
@@ -166,6 +167,18 @@ const postTokenToServer = async ({ t, pawtect = null, fp = null }) => {
     throw lastError || new Error('Could not deliver token to local server.');
 };
 
+const deliverCachedTokenPair = async () => {
+    if (!lastDeliveredTokenPair?.t) return false;
+    try {
+        await postTokenToServer(lastDeliveredTokenPair);
+        console.log('kglacer: Delivered cached token pair immediately.');
+        return true;
+    } catch (error) {
+        console.warn('kglacer: Failed to deliver cached token pair:', error?.message || error);
+        return false;
+    }
+};
+
 const requestTurnstileToken = async () => {
     const tabs = await queryTabs({ url: 'https://wplace.live/*' });
     if (!tabs.length) {
@@ -209,6 +222,7 @@ const pollForTokenRequest = async () => {
         
         if (data.needed) {
             console.log("kglacer: Server requires a token.");
+            await deliverCachedTokenPair();
             await requestTurnstileToken();
             
             // Start tracking token wait time if not already tracking
@@ -503,8 +517,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     if (request.type === 'SEND_TOKEN' || request.action === 'tokenPairReceived') {
-        postTokenToServer({ t: request.t || request.token, pawtect: request.pawtect || null, fp: request.fp || null })
+        const tokenPair = { t: request.t || request.token, pawtect: request.pawtect || null, fp: request.fp || null };
+        postTokenToServer(tokenPair)
             .then(() => {
+                lastDeliveredTokenPair = tokenPair;
                 tokenWaitStartTime = null;
                 isReloading = false;
                 sendResponse?.({ success: true });
