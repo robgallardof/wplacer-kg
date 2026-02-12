@@ -1224,16 +1224,22 @@ class WPlacer {
         const pixelsThisTurn = capTurnPixels(chargesNow);
         const todo = mismatched.slice(0, pixelsThisTurn);
 
+        if (todo.length === 0) {
+            log(this.userInfo.id, this.userInfo.name, `[${this.templateName}] ⚠️ No paintable pixels selected this turn (charges=${chargesNow}). Refreshing charge cache.`);
+            ChargeCache.forceResync(this.userInfo.id, 0);
+            return 0;
+        }
+
         // Keep paint payloads bounded to avoid oversized requests and improve reliability.
         const chunks = buildPaintChunks(todo, MAX_PIXELS_PER_REQUEST);
 
-        const { total } = await runPaintChunks({
+        const { total, status } = await runPaintChunks({
             chunks,
             fingerprint: globalThis.__wplacer_last_fp,
             executePaint: (tx, ty, body) => this._executePaint(tx, ty, { ...body, t: this.token }),
             onTokenRefresh: () => {
                 log(this.userInfo.id, this.userInfo.name, `[${this.templateName}] 🔄 Token expired mid-batch. Keeping progress and rotating token.`);
-                TokenManager.invalidateToken();
+                TokenManager.invalidateToken('mid-batch refresh from pixel endpoint');
             },
             onNoCharges: () => {
                 log(this.userInfo.id, this.userInfo.name, `[${this.templateName}] ⚠️ Prediction mismatch. Server reports no charges. Resyncing cache.`);
@@ -1243,6 +1249,10 @@ class WPlacer {
                 log(this.userInfo.id, this.userInfo.name, `[${this.templateName}] ⚠️ Paint interrupted after ${painted} px. Will retry next cycle. (${error?.message || error})`);
             },
         });
+
+        if (status === 'token_refresh' && total === 0) {
+            throw new Error('REFRESH_TOKEN');
+        }
 
         return total;
     }
@@ -1595,12 +1605,11 @@ const TokenManager = {
             log('SYSTEM', 'wplacer', `TOKEN_MANAGER: ✅ Token received. Queue size: ${this.tokenQueue.length}`);
         }
     },
-    invalidateToken() {
-        // This is now handled by the consumer (getToken), but we keep it in case of explicit invalidation needs.
-        const invalidated = this.tokenQueue.shift();
-        if (invalidated) {
-            log('SYSTEM', 'wplacer', `TOKEN_MANAGER: 🔄 Invalidating token. ${this.tokenQueue.length} left.`);
-        }
+    invalidateToken(reason = 'refresh requested by backend') {
+        const dropped = this.tokenQueue.length;
+        this.tokenQueue = [];
+        this.isTokenNeeded = true;
+        log('SYSTEM', 'wplacer', `TOKEN_MANAGER: 🔄 Invalidating token cache (${reason}). Dropped ${dropped} queued token(s).`);
     },
 };
 
@@ -1734,6 +1743,7 @@ class TemplateManager {
     async _performPaintTurn(wplacer, colorFilter = null) {
         let paintedTotal = 0;
         let done = false;
+        let refreshRetries = 0;
         while (!done && this.running) {
             try {
                 wplacer.token = await TokenManager.getToken(this.name);
@@ -1742,6 +1752,7 @@ class TemplateManager {
                 const painted = await wplacer.paint(this.currentPixelSkip, colorFilter);
                 paintedTotal += painted;
                 done = true;
+                refreshRetries = 0;
             } catch (error) {
                 if (error.name === 'SuspensionError') {
                     const until = new Date(error.suspendedUntil).toLocaleString();
@@ -1762,8 +1773,12 @@ class TemplateManager {
                     throw error;
                 }
                 if (error.message === 'REFRESH_TOKEN') {
+                    refreshRetries++;
                     log(wplacer.userInfo.id, wplacer.userInfo.name, `[${this.name}] 🔄 Token expired. Next token...`);
-                    TokenManager.invalidateToken();
+                    TokenManager.invalidateToken('paint endpoint requested token refresh');
+                    if (refreshRetries >= 5) {
+                        throw new NetworkError('Too many consecutive token refresh requests. Validate extension token bridge (turnstile/pawtect/fp).');
+                    }
                     await sleep(1000);
                 } else {
                     throw error;
