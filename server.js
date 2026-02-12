@@ -762,7 +762,11 @@ class WPlacer {
     }
 
     async post(url, body) {
-        const headers = { 'Content-Type': 'text/plain;charset=UTF-8' };
+        const headers = {
+            'Content-Type': 'text/plain;charset=UTF-8',
+            'Accept': '*/*',
+            'x-pawtect-variant': 'koala',
+        };
         if (this.pawtect) headers['x-pawtect-token'] = this.pawtect;
         const req = await this._fetch(url, {
             method: 'POST',
@@ -1224,7 +1228,6 @@ class WPlacer {
 
         const { total } = await runPaintChunks({
             chunks,
-            token: this.token,
             fingerprint: globalThis.__wplacer_last_fp,
             executePaint: (tx, ty, body) => this._executePaint(tx, ty, body),
             onTokenRefresh: () => {

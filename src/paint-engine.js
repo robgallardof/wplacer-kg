@@ -34,7 +34,6 @@ export const buildPaintChunks = (pixels, maxPixelsPerRequest = MAX_PIXELS_PER_RE
 
 export const runPaintChunks = async ({
     chunks,
-    token,
     fingerprint,
     executePaint,
     onTokenRefresh,
@@ -44,7 +43,7 @@ export const runPaintChunks = async ({
     let total = 0;
 
     for (const chunk of chunks) {
-        const body = { colors: chunk.colors, coords: chunk.coords, t: token };
+        const body = { colors: chunk.colors, coords: chunk.coords };
         if (fingerprint) body.fp = fingerprint;
 
         let result;

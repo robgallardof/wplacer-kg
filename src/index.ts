@@ -561,7 +561,12 @@ userForm.addEventListener('submit', async (e) => {
     }
 
     try {
-        const response = await axios.post('/user', { cookies: { s: scookie.value, j: jValue } });
+        const cfuvidRaw = scookie.value.trim();
+        const cfuvid = cfuvidRaw.startsWith('_cfuvid=') ? cfuvidRaw.slice('_cfuvid='.length) : cfuvidRaw;
+        const cookies: Record<string, string> = { j: jValue };
+        if (cfuvid) cookies._cfuvid = cfuvid;
+
+        const response = await axios.post('/user', { cookies });
         if (response.status === 200) {
             showMessage('Success', `Logged in as ${response.data.name} (#${response.data.id})!`);
             userForm.reset();
