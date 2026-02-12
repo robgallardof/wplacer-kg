@@ -614,7 +614,7 @@ const handleError = (error) => {
                 "Authentication failed. The user's cookie may be expired or invalid. Please try adding the user again with a new cookie.";
         } else if (errMsg.includes('(401)')) {
             message =
-                'Authentication failed (401). This may be due to an invalid cookie or the IP/proxy being rate-limited. Please try again later or with a different proxy.';
+                'Authentication failed (401). This may be due to an invalid cookie or the IP/proxy being rate-limited. If a Private Access Token challenge just ran, one follow-up request may briefly return 401 and log a browser warning before normal traffic resumes.';
         } else if (errMsg.includes('(502)')) {
             message =
                 "The server reported a 'Bad Gateway' error. It might be temporarily down or restarting. Please try again in a few moments.";
