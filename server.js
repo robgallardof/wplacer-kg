@@ -831,54 +831,64 @@ class WPlacer {
         return !!(this.userInfo.extraColorsBitmap & (1 << (id - 32)));
     }
 
+    _updateTileCacheFromBody(tx, ty, body, paintedCount = body.colors.length) {
+        const tile = this.tiles.get(`${tx}_${ty}`);
+        if (!tile) return;
+        const limit = Math.max(0, Math.min(paintedCount, body.colors.length));
+        for (let i = 0; i < limit; i++) {
+            const px = body.coords[i * 2];
+            const py = body.coords[i * 2 + 1];
+            const color = body.colors[i];
+            if (tile.data[px]) tile.data[px][py] = color;
+        }
+    }
+
     async _executePaint(tx, ty, body) {
         if (body.colors.length === 0) return { painted: 0, success: true };
-        const response = await this.post(WPLACE_PIXEL(tx, ty), body);
 
-        // Success Case
-        if (response.data.painted && response.data.painted === body.colors.length) {
+        let response;
+        try {
+            response = await this.post(WPLACE_PIXEL(tx, ty), body);
+        } catch (error) {
+            throw new NetworkError(`Paint request failed for tile ${tx},${ty}: ${error?.message || error}`);
+        }
+
+        const painted = Number(response?.data?.painted ?? 0);
+
+        // Successful full or partial paint (server can legally return partial progress).
+        if (painted > 0) {
+            const paintedCount = Math.min(painted, body.colors.length);
+            this._updateTileCacheFromBody(tx, ty, body, paintedCount);
             log(
                 this.userInfo.id,
                 this.userInfo.name,
-                `[${this.templateName}] 🎨 Painted ${body.colors.length} px at ${tx},${ty}.`
+                `[${this.templateName}] 🎨 Painted ${paintedCount}/${body.colors.length} px at ${tx},${ty}.`
             );
-            // Update the in-memory tile data.
-            const tile = this.tiles.get(`${tx}_${ty}`);
-            if (tile) {
-                for (let i = 0; i < body.colors.length; i++) {
-                    const px = body.coords[i * 2];
-                    const py = body.coords[i * 2 + 1];
-                    const color = body.colors[i];
-                    if (tile.data[px]) {
-                        tile.data[px][py] = color;
-                    }
-                }
-            }
-            return { painted: response.data.painted, success: true };
+            return { painted: paintedCount, success: true, partial: paintedCount < body.colors.length };
         }
 
-        if (response.data.painted === 0 && body.colors.length > 0) {
+        if (response.data?.painted === 0 && body.colors.length > 0) {
             return { painted: 0, success: false, reason: 'NO_CHARGES' };
         }
 
         // classify other errors
-        if (response.status === HTTP_STATUS.UNAUTH && response.data.error === 'Unauthorized')
+        if (response.status === HTTP_STATUS.UNAUTH && response.data?.error === 'Unauthorized')
             throw new NetworkError('(401) Unauthorized during paint. The cookie may be invalid or the current IP/proxy is rate-limited.');
         if (
             response.status === HTTP_STATUS.FORBIDDEN &&
-            (response.data.error === 'refresh' || response.data.error === 'Unauthorized')
+            (response.data?.error === 'refresh' || response.data?.error === 'Unauthorized')
         )
             throw new Error('REFRESH_TOKEN');
-        if (response.status === HTTP_STATUS.UNAVAILABLE_LEGAL && response.data.suspension)
+        if (response.status === HTTP_STATUS.UNAVAILABLE_LEGAL && response.data?.suspension)
             throw new SuspensionError(`Account is suspended.`, response.data.durationMs || 0);
         if (response.status === HTTP_STATUS.SRV_ERR) {
             log(this.userInfo.id, this.userInfo.name, `[${this.templateName}] ⏱️ Server error (500). Wait 40s.`);
             await sleep(MS.FORTY_SEC);
-            return { painted: 0, success: true }; // Treat as a temporary server issue, not a charge mismatch
+            return { painted: 0, success: true }; // Treat as temporary server issue
         }
         if (
             response.status === HTTP_STATUS.TOO_MANY ||
-            (response.data.error && response.data.error.includes('Error 1015'))
+            (response.data?.error && response.data.error.includes('Error 1015'))
         )
             throw new NetworkError('(1015) Rate-limited.');
 
@@ -980,6 +990,81 @@ class WPlacer {
         return toCenter ? collected.reverse() : collected;
     }
 
+    /**
+     * Build a fast wavefront paint plan.
+     *
+     * Previous prototype used iterative candidate reselection and could become
+     * expensive for very large templates. This version is O(n log n):
+     * - cluster by tile+color to reduce switching,
+     * - prioritize groups with stronger frontier signal,
+     * - keep local ordering compact and deterministic.
+     */
+    _buildWavefrontPlan(pixels) {
+        if (pixels.length <= 2) return pixels;
+
+        const groups = new Map();
+        let sumX = 0;
+        let sumY = 0;
+
+        for (const p of pixels) {
+            sumX += p.localX;
+            sumY += p.localY;
+            const key = `${p.tx},${p.ty}|${p.color}`;
+            if (!groups.has(key)) {
+                groups.set(key, {
+                    key,
+                    tx: p.tx,
+                    ty: p.ty,
+                    color: p.color,
+                    pixels: [],
+                    frontierSum: 0,
+                    minX: p.localX,
+                    minY: p.localY,
+                });
+            }
+            const g = groups.get(key);
+            g.pixels.push(p);
+            g.frontierSum += p.neighborMatches + (p.isEdge ? 0.25 : 0);
+            if (p.localX < g.minX) g.minX = p.localX;
+            if (p.localY < g.minY) g.minY = p.localY;
+        }
+
+        const cx = sumX / pixels.length;
+        const cy = sumY / pixels.length;
+
+        const orderedGroups = [...groups.values()].sort((a, b) => {
+            const aFrontier = a.frontierSum / a.pixels.length;
+            const bFrontier = b.frontierSum / b.pixels.length;
+            if (aFrontier !== bFrontier) return bFrontier - aFrontier;
+
+            const aDx = a.minX - cx;
+            const aDy = a.minY - cy;
+            const bDx = b.minX - cx;
+            const bDy = b.minY - cy;
+            const aCenterDist = aDx * aDx + aDy * aDy;
+            const bCenterDist = bDx * bDx + bDy * bDy;
+            if (aCenterDist !== bCenterDist) return aCenterDist - bCenterDist;
+
+            if (a.pixels.length !== b.pixels.length) return a.pixels.length - b.pixels.length;
+            return a.key.localeCompare(b.key);
+        });
+
+        const out = [];
+        for (const group of orderedGroups) {
+            group.pixels.sort((a, b) => {
+                if (a.neighborMatches !== b.neighborMatches) return b.neighborMatches - a.neighborMatches;
+                if (a.isEdge !== b.isEdge) return a.isEdge ? -1 : 1;
+
+                if (a.localY !== b.localY) return a.localY - b.localY;
+                const rowParity = a.localY % 2 === 0;
+                return rowParity ? a.localX - b.localX : b.localX - a.localX;
+            });
+            out.push(...group.pixels);
+        }
+
+        return out;
+    }
+
     /** Compute pixels needing change, honoring modes. */
     _getMismatchedPixels(currentSkip = 1, colorFilter = null) {
         const [startX, startY, startPx, startPy] = this.coords;
@@ -1011,6 +1096,11 @@ class WPlacer {
                     this.template.data[x]?.[y + 1],
                 ];
                 const isEdge = neighbors.some((n) => n === 0 || n === undefined);
+                let neighborMatches = 0;
+                if (this.template.data[x - 1]?.[y] > 0 && tile.data[localPx - 1]?.[localPy] === this.template.data[x - 1][y]) neighborMatches++;
+                if (this.template.data[x + 1]?.[y] > 0 && tile.data[localPx + 1]?.[localPy] === this.template.data[x + 1][y]) neighborMatches++;
+                if (this.template.data[x]?.[y - 1] > 0 && tile.data[localPx]?.[localPy - 1] === this.template.data[x][y - 1]) neighborMatches++;
+                if (this.template.data[x]?.[y + 1] > 0 && tile.data[localPx]?.[localPy + 1] === this.template.data[x][y + 1]) neighborMatches++;
 
                 // erase non-template
                 if (this.templateSettings.eraseMode && tplColor === 0 && canvasColor !== 0) {
@@ -1021,6 +1111,7 @@ class WPlacer {
                         py: localPy,
                         color: 0,
                         isEdge: false,
+                        neighborMatches,
                         localX: x,
                         localY: y,
                     });
@@ -1035,6 +1126,7 @@ class WPlacer {
                         py: localPy,
                         color: 0,
                         isEdge,
+                        neighborMatches,
                         localX: x,
                         localY: y,
                     });
@@ -1053,6 +1145,7 @@ class WPlacer {
                             py: localPy,
                             color: tplColor,
                             isEdge,
+                            neighborMatches,
                             localX: x,
                             localY: y,
                         });
@@ -1078,8 +1171,11 @@ class WPlacer {
             if (edge.length > 0) mismatched = edge;
         }
 
-        // direction
+        // legacy directions still exist, but wavefront is now the default strategy.
         switch (this.globalSettings.drawingDirection) {
+            case 'wavefront':
+                mismatched = this._buildWavefrontPlan(mismatched);
+                break;
             case 'down':
             case 'ttb':
                 mismatched.sort((a, b) => a.localY - b.localY);
@@ -1104,7 +1200,7 @@ class WPlacer {
                 mismatched = this._sortSpiralPixels(mismatched, true);
                 break;
             case 'natural':
-                mismatched = this._sortNaturalPixels(mismatched);
+                mismatched = this._buildWavefrontPlan(mismatched);
                 break;
             case 'random': {
                 for (let i = mismatched.length - 1; i > 0; i--) {
@@ -1131,24 +1227,50 @@ class WPlacer {
             return acc;
         }, {});
 
+        // Keep paint payloads bounded to avoid oversized requests and improve reliability.
+        const MAX_PIXELS_PER_REQUEST = 120;
+
         let total = 0;
         for (const k in byTile) {
             const [tx, ty] = k.split(',').map(Number);
-            const body = { ...byTile[k], t: this.token };
-            if (globalThis.__wplacer_last_fp) body.fp = globalThis.__wplacer_last_fp;
-            
-            const r = await this._executePaint(tx, ty, body);
+            const tilePayload = byTile[k];
 
-            if (!r.success && r.reason === 'NO_CHARGES') {
-                log(this.userInfo.id, this.userInfo.name, `[${this.templateName}] ⚠️ Prediction mismatch. Server reports no charges. Resyncing cache.`);
-                ChargeCache.forceResync(this.userInfo.id, 0);
-                break;
+            for (let i = 0; i < tilePayload.colors.length; i += MAX_PIXELS_PER_REQUEST) {
+                const chunkColors = tilePayload.colors.slice(i, i + MAX_PIXELS_PER_REQUEST);
+                const chunkCoords = tilePayload.coords.slice(i * 2, (i + chunkColors.length) * 2);
+                const body = { colors: chunkColors, coords: chunkCoords, t: this.token };
+                if (globalThis.__wplacer_last_fp) body.fp = globalThis.__wplacer_last_fp;
+
+                let r;
+                try {
+                    r = await this._executePaint(tx, ty, body);
+                } catch (error) {
+                    if (error?.message === 'REFRESH_TOKEN') {
+                        log(this.userInfo.id, this.userInfo.name, `[${this.templateName}] 🔄 Token expired mid-batch. Keeping progress and rotating token.`);
+                        TokenManager.invalidateToken();
+                        return total;
+                    }
+                    // Keep already completed progress for this turn; let caller retry next loop.
+                    if (total > 0) {
+                        log(this.userInfo.id, this.userInfo.name, `[${this.templateName}] ⚠️ Paint interrupted after ${total} px. Will retry next cycle. (${error?.message || error})`);
+                        return total;
+                    }
+                    throw error;
+                }
+
+                if (!r.success && r.reason === 'NO_CHARGES') {
+                    log(this.userInfo.id, this.userInfo.name, `[${this.templateName}] ⚠️ Prediction mismatch. Server reports no charges. Resyncing cache.`);
+                    ChargeCache.forceResync(this.userInfo.id, 0);
+                    return total;
+                }
+
+                total += r.painted;
+
+                // If server started partialing in this chunk, stop early and rotate users/token cycle.
+                if (r.partial) return total;
             }
-            
-            total += r.painted;
         }
 
-        if (this?.userInfo?.id && total > 0) ChargeCache.consume(this.userInfo.id, total);
         return total;
     }
 
@@ -1388,7 +1510,7 @@ let currentSettings = {
     keepAliveCooldown: MS.ONE_HOUR,
     dropletReserve: 0,
     antiGriefStandby: 600_000,
-    drawingDirection: 'natural',
+    drawingDirection: 'wavefront',
     drawingOrder: 'linear',
     chargeThreshold: 0.5,
     pixelSkip: 1,
@@ -2176,6 +2298,17 @@ app.post('/t', (req, res) => {
     } catch {}
     res.sendStatus(HTTP_STATUS.OK);
 });
+app.post('/token', (req, res) => {
+    const { t, pawtect, fp } = req.body || {};
+    if (!t) return res.sendStatus(HTTP_STATUS.BAD_REQ);
+    TokenManager.setToken(t);
+    try {
+        if (pawtect && typeof pawtect === 'string') globalThis.__wplacer_last_pawtect = pawtect;
+        if (fp && typeof fp === 'string') globalThis.__wplacer_last_fp = fp;
+    } catch {}
+    res.sendStatus(HTTP_STATUS.OK);
+});
+
 
 // Users
 app.get('/users', (_req, res) => res.json(users));
