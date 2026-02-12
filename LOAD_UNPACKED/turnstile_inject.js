@@ -12,6 +12,14 @@
     _cachedTokens: [],
     _lastGenerationTime: null,
 
+    _sanitizeSitekey(raw) {
+      if (typeof raw !== 'string') return null;
+      const key = raw.trim();
+      if (!key) return null;
+      if (!/^0x[0-9A-Za-z_-]{10,}$/.test(key)) return null;
+      return key;
+    },
+
     async loadTurnstile() {
       if (window.turnstile && typeof window.turnstile.render === 'function') {
         this._turnstileLoaded = true;
@@ -127,8 +135,8 @@
         // Try to find sitekey in the DOM
         const turnstileElements = document.querySelectorAll('[data-sitekey]');
         for (const el of turnstileElements) {
-          const key = el.getAttribute('data-sitekey');
-          if (key && key.length > 10) {
+          const key = this._sanitizeSitekey(el.getAttribute('data-sitekey'));
+          if (key) {
             this._cachedSitekey = key;
             return key;
           }
@@ -138,10 +146,11 @@
         const scripts = document.querySelectorAll('script');
         for (const script of scripts) {
           const content = script.textContent || '';
-          const match = content.match(/sitekey["':\s]+([\w\d]+)/i);
-          if (match && match[1] && match[1].length > 10) {
-            this._cachedSitekey = match[1];
-            return match[1];
+          const match = content.match(/sitekey["'\s:=]+([0-9A-Za-z_-]{10,})/i);
+          const key = this._sanitizeSitekey(match?.[1]);
+          if (key) {
+            this._cachedSitekey = key;
+            return key;
           }
         }
 
@@ -149,18 +158,19 @@
         const iframes = document.querySelectorAll('iframe[src*="challenges.cloudflare.com"]');
         for (const iframe of iframes) {
           const src = iframe.src || '';
-          const match = src.match(/[?&]sitekey=([\w\d]+)/i);
-          if (match && match[1] && match[1].length > 10) {
-            this._cachedSitekey = match[1];
-            return match[1];
+          const match = src.match(/[?&]sitekey=([^&#]+)/i);
+          const key = this._sanitizeSitekey(match?.[1] ? decodeURIComponent(match[1]) : null);
+          if (key) {
+            this._cachedSitekey = key;
+            return key;
           }
         }
 
         // Fallback to known sitekey
-        return '0x4AAAAAAABnRCVzx0HWNhXFY';
+        return '0x4AAAAAABpHqZ-6i7uL0nmG';
       } catch (e) {
         console.error('wplacer: Error getting sitekey:', e);
-        return '0x4AAAAAAABnRCVzx0HWNhXFY';
+        return '0x4AAAAAABpHqZ-6i7uL0nmG';
       }
     },
 

@@ -1577,6 +1577,8 @@ const TokenManager = {
     tokenPromise: null,
     resolvePromise: null,
     isTokenNeeded: false,
+    waitStartedAt: null,
+    waitingTemplateName: null,
     TOKEN_EXPIRATION_MS: MS.TWO_MIN,
 
     _purgeExpiredTokens() {
@@ -1588,32 +1590,46 @@ const TokenManager = {
     },
     getToken(templateName = 'Unknown') {
         this._purgeExpiredTokens();
-        if (this.tokenQueue.length > 0) return Promise.resolve(this.tokenQueue.shift().token);
+        if (this.tokenQueue.length > 0) {
+            const queued = this.tokenQueue.shift().token;
+            log('SYSTEM', 'wplacer', `TOKEN_MANAGER: 📦 Serving cached token to template "${templateName}". Remaining queue=${this.tokenQueue.length}.`);
+            return Promise.resolve(queued);
+        }
         if (!this.tokenPromise) {
+            this.waitStartedAt = Date.now();
+            this.waitingTemplateName = templateName;
             log('SYSTEM', 'wplacer', `TOKEN_MANAGER: ⏳ Template "${templateName}" is waiting for a token.`);
             this.isTokenNeeded = true;
             this.tokenPromise = new Promise((resolve) => {
                 this.resolvePromise = resolve;
             });
+        } else {
+            const waitMs = this.waitStartedAt ? Date.now() - this.waitStartedAt : 0;
+            log('SYSTEM', 'wplacer', `TOKEN_MANAGER: 🔁 Reusing pending token wait (template="${this.waitingTemplateName || templateName}", waited=${duration(waitMs)}).`);
         }
         return this.tokenPromise;
     },
     setToken(t) {
         const newToken = { token: t, receivedAt: Date.now() };
+        const tokenTail = typeof t === 'string' ? t.slice(-8) : 'unknown';
         if (this.resolvePromise) {
-            log('SYSTEM', 'wplacer', `TOKEN_MANAGER: ✅ Token received, immediately consumed by waiting task.`);
+            const waitMs = this.waitStartedAt ? Date.now() - this.waitStartedAt : 0;
+            log('SYSTEM', 'wplacer', `TOKEN_MANAGER: ✅ Token received (…${tokenTail}), immediately consumed by waiting task after ${duration(waitMs)}.`);
             this.resolvePromise(newToken.token);
             this.tokenPromise = null;
             this.resolvePromise = null;
+            this.waitStartedAt = null;
+            this.waitingTemplateName = null;
             this.isTokenNeeded = false;
         } else {
             this.tokenQueue.push(newToken);
-            log('SYSTEM', 'wplacer', `TOKEN_MANAGER: ✅ Token received. Queue size: ${this.tokenQueue.length}`);
+            log('SYSTEM', 'wplacer', `TOKEN_MANAGER: ✅ Token received (…${tokenTail}). Queue size: ${this.tokenQueue.length}`);
         }
     },
     invalidateToken(reason = 'refresh requested by backend') {
         const dropped = this.tokenQueue.length;
         this.tokenQueue = [];
+        this.waitStartedAt = Date.now();
         this.isTokenNeeded = true;
         log('SYSTEM', 'wplacer', `TOKEN_MANAGER: 🔄 Invalidating token cache (${reason}). Dropped ${dropped} queued token(s).`);
     },
@@ -1752,11 +1768,14 @@ class TemplateManager {
         let refreshRetries = 0;
         while (!done && this.running) {
             try {
+                log(wplacer.userInfo.id, wplacer.userInfo.name, `[${this.name}] 🔐 Requesting token from TokenManager (color=${colorFilter === null ? 'ALL' : (COLOR_NAMES[colorFilter] || `ID:${colorFilter}`)}, pixelSkip=${this.currentPixelSkip}).`);
                 wplacer.token = await TokenManager.getToken(this.name);
                 // Pull latest pawtect token if available
                 wplacer.pawtect = globalThis.__wplacer_last_pawtect || null;
+                log(wplacer.userInfo.id, wplacer.userInfo.name, `[${this.name}] 🧩 Token ready (pawtect=${wplacer.pawtect ? 'yes' : 'no'}). Starting paint request(s).`);
                 const painted = await wplacer.paint(this.currentPixelSkip, colorFilter);
                 paintedTotal += painted;
+                log(wplacer.userInfo.id, wplacer.userInfo.name, `[${this.name}] 🎨 Paint request cycle completed with ${painted} painted pixels.`);
                 done = true;
                 refreshRetries = 0;
             } catch (error) {
@@ -1930,7 +1949,7 @@ class TemplateManager {
                         const pixelsInThisPass = passPixels.filter(p => (p.localX + p.localY) % this.currentPixelSkip === 0);
                         if (pixelsInThisPass.length === 0) continue;
 
-                        log('SYSTEM', 'wplacer', `[${this.name}] Starting pass (${passIndex + 1}/${passSkips.length}) for color ${isColorMode ? (COLOR_NAMES[color] || 'Erase') : 'All'}`);
+                        log('SYSTEM', 'wplacer', `[${this.name}] Starting pass (${passIndex + 1}/${passSkips.length}) for color ${isColorMode ? (COLOR_NAMES[color] || 'Erase') : 'All'} | pixelSkip=${this.currentPixelSkip} | targetedPixels=${pixelsInThisPass.length}.`);
 
                         let passComplete = false;
                         while (this.running && !passComplete) {
@@ -1983,7 +2002,7 @@ class TemplateManager {
                                     readyUsers.push({ userId, potentialCharges: Math.min(predicted.max, potentialCharges) });
                                 }
                             }
-                            log('SYSTEM', 'wplacer', `[${this.name}] 👥 Ready users for this pass: ${readyUsers.length > 0 ? readyUsers.map((u) => `${users[u.userId]?.name || u.userId}:${u.potentialCharges}`).join(', ') : 'none'}.`);
+                            log('SYSTEM', 'wplacer', `[${this.name}] 👥 Ready users for this pass: ${readyUsers.length > 0 ? readyUsers.map((u) => `${users[u.userId]?.name || u.userId}:${u.potentialCharges}`).join(', ') : 'none'}. Queue=${this.userQueue.length}.`);
 
                             let bestUser = null;
                             if (readyUsers.length > 0) {
@@ -2005,7 +2024,8 @@ class TemplateManager {
                                     const chargesBeforePaint = ChargeCache._extractFromUserInfo(wplacer.userInfo);
                                     log(userInfo.id, userInfo.name, `[${this.name}] 🔋 Best user selected. Ready with charges: ${chargesBeforePaint.count}/${chargesBeforePaint.max}.`);
 
-                                    await this._performPaintTurn(wplacer, color);
+                                    const paintedTurn = await this._performPaintTurn(wplacer, color);
+                                    log(userInfo.id, userInfo.name, `[${this.name}] ✅ Paint turn finished. Painted ${paintedTurn} px (color=${color === null ? 'ALL' : (COLOR_NAMES[color] || `ID:${color}`)}).`);
                                     await this.handleUpgrades(wplacer);
 
                                     users[userId].droplets = wplacer.userInfo.droplets;
@@ -2317,7 +2337,14 @@ app.get('/errors', (req, res) => {
     streamLogFile(res, filePath, lastSize);
 });
 
-app.get('/token-needed', (_req, res) => res.json({ needed: TokenManager.isTokenNeeded }));
+let lastTokenNeededState = null;
+app.get('/token-needed', (_req, res) => {
+    if (lastTokenNeededState !== TokenManager.isTokenNeeded) {
+        log('SYSTEM', 'wplacer', `[TokenBridge] token-needed state changed -> ${TokenManager.isTokenNeeded ? 'NEEDED' : 'NOT_NEEDED'}. queue=${TokenManager.tokenQueue.length}.`);
+        lastTokenNeededState = TokenManager.isTokenNeeded;
+    }
+    res.json({ needed: TokenManager.isTokenNeeded });
+});
 app.get('/bridge/config', (_req, res) => res.json({
     primaryPort: APP_PRIMARY_PORT,
     fallbackPorts: APP_FALLBACK_PORTS,
@@ -2347,7 +2374,7 @@ app.post('/t', (req, res) => {
         if (fp) globalThis.__wplacer_last_fp = fp;
     } catch {}
 
-    log('SYSTEM', 'wplacer', `[TokenBridge] Accepted token on /t (len=${t.length}, pawtect=${pawtect ? 'yes' : 'no'}, fp=${fp ? 'yes' : 'no'}).`);
+    log('SYSTEM', 'wplacer', `[TokenBridge] Accepted token on /t (len=${t.length}, pawtect=${pawtect ? 'yes' : 'no'}, fp=${fp ? 'yes' : 'no'}, ip=${req.ip || 'unknown'}).`);
     res.status(HTTP_STATUS.OK).json({ ok: true });
 });
 app.post('/token', (req, res) => {
@@ -2363,7 +2390,7 @@ app.post('/token', (req, res) => {
         if (fp) globalThis.__wplacer_last_fp = fp;
     } catch {}
 
-    log('SYSTEM', 'wplacer', `[TokenBridge] Accepted token on /token (len=${t.length}, pawtect=${pawtect ? 'yes' : 'no'}, fp=${fp ? 'yes' : 'no'}).`);
+    log('SYSTEM', 'wplacer', `[TokenBridge] Accepted token on /token (len=${t.length}, pawtect=${pawtect ? 'yes' : 'no'}, fp=${fp ? 'yes' : 'no'}, ip=${req.ip || 'unknown'}).`);
     res.status(HTTP_STATUS.OK).json({ ok: true });
 });
 
