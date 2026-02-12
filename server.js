@@ -1574,6 +1574,7 @@ let activePaintingTasks = 0;
 
 const TokenManager = {
     tokenQueue: [],
+    activeToken: null,
     tokenPromise: null,
     resolvePromise: null,
     isTokenNeeded: false,
@@ -1588,7 +1589,16 @@ const TokenManager = {
     },
     getToken(templateName = 'Unknown') {
         this._purgeExpiredTokens();
-        if (this.tokenQueue.length > 0) return Promise.resolve(this.tokenQueue.shift().token);
+        if (this.activeToken && Date.now() - this.activeToken.receivedAt < this.TOKEN_EXPIRATION_MS) {
+            return Promise.resolve(this.activeToken.token);
+        }
+        this.activeToken = null;
+
+        if (this.tokenQueue.length > 0) {
+            const queued = this.tokenQueue.shift();
+            this.activeToken = queued;
+            return Promise.resolve(queued.token);
+        }
         if (!this.tokenPromise) {
             log('SYSTEM', 'wplacer', `TOKEN_MANAGER: ⏳ Template "${templateName}" is waiting for a token.`);
             this.isTokenNeeded = true;
@@ -1600,6 +1610,7 @@ const TokenManager = {
     },
     setToken(t) {
         const newToken = { token: t, receivedAt: Date.now() };
+        this.activeToken = newToken;
         if (this.resolvePromise) {
             log('SYSTEM', 'wplacer', `TOKEN_MANAGER: ✅ Token received, immediately consumed by waiting task.`);
             this.resolvePromise(newToken.token);
@@ -1607,13 +1618,14 @@ const TokenManager = {
             this.resolvePromise = null;
             this.isTokenNeeded = false;
         } else {
-            this.tokenQueue.push(newToken);
+            this.tokenQueue = [newToken];
             log('SYSTEM', 'wplacer', `TOKEN_MANAGER: ✅ Token received. Queue size: ${this.tokenQueue.length}`);
         }
     },
     invalidateToken(reason = 'refresh requested by backend') {
         const dropped = this.tokenQueue.length;
         this.tokenQueue = [];
+        this.activeToken = null;
         this.isTokenNeeded = true;
         log('SYSTEM', 'wplacer', `TOKEN_MANAGER: 🔄 Invalidating token cache (${reason}). Dropped ${dropped} queued token(s).`);
     },
