@@ -22,6 +22,7 @@ import path from 'node:path';
 import cors from 'cors';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
+import { MAX_PIXELS_PER_REQUEST, buildPaintChunks, runPaintChunks } from './src/paint-engine.js';
 
 // --- WebSocket for logs ---
 import { WebSocketServer } from 'ws';
@@ -1218,58 +1219,26 @@ class WPlacer {
         const chargesNow = parsedCharges.count;
         const todo = mismatched.slice(0, chargesNow);
 
-        // group per tile
-        const byTile = todo.reduce((acc, p) => {
-            const key = `${p.tx},${p.ty}`;
-            if (!acc[key]) acc[key] = { colors: [], coords: [] };
-            acc[key].colors.push(p.color);
-            acc[key].coords.push(p.px, p.py);
-            return acc;
-        }, {});
-
         // Keep paint payloads bounded to avoid oversized requests and improve reliability.
-        const MAX_PIXELS_PER_REQUEST = 120;
+        const chunks = buildPaintChunks(todo, MAX_PIXELS_PER_REQUEST);
 
-        let total = 0;
-        for (const k in byTile) {
-            const [tx, ty] = k.split(',').map(Number);
-            const tilePayload = byTile[k];
-
-            for (let i = 0; i < tilePayload.colors.length; i += MAX_PIXELS_PER_REQUEST) {
-                const chunkColors = tilePayload.colors.slice(i, i + MAX_PIXELS_PER_REQUEST);
-                const chunkCoords = tilePayload.coords.slice(i * 2, (i + chunkColors.length) * 2);
-                const body = { colors: chunkColors, coords: chunkCoords, t: this.token };
-                if (globalThis.__wplacer_last_fp) body.fp = globalThis.__wplacer_last_fp;
-
-                let r;
-                try {
-                    r = await this._executePaint(tx, ty, body);
-                } catch (error) {
-                    if (error?.message === 'REFRESH_TOKEN') {
-                        log(this.userInfo.id, this.userInfo.name, `[${this.templateName}] 🔄 Token expired mid-batch. Keeping progress and rotating token.`);
-                        TokenManager.invalidateToken();
-                        return total;
-                    }
-                    // Keep already completed progress for this turn; let caller retry next loop.
-                    if (total > 0) {
-                        log(this.userInfo.id, this.userInfo.name, `[${this.templateName}] ⚠️ Paint interrupted after ${total} px. Will retry next cycle. (${error?.message || error})`);
-                        return total;
-                    }
-                    throw error;
-                }
-
-                if (!r.success && r.reason === 'NO_CHARGES') {
-                    log(this.userInfo.id, this.userInfo.name, `[${this.templateName}] ⚠️ Prediction mismatch. Server reports no charges. Resyncing cache.`);
-                    ChargeCache.forceResync(this.userInfo.id, 0);
-                    return total;
-                }
-
-                total += r.painted;
-
-                // If server started partialing in this chunk, stop early and rotate users/token cycle.
-                if (r.partial) return total;
-            }
-        }
+        const { total } = await runPaintChunks({
+            chunks,
+            token: this.token,
+            fingerprint: globalThis.__wplacer_last_fp,
+            executePaint: (tx, ty, body) => this._executePaint(tx, ty, body),
+            onTokenRefresh: () => {
+                log(this.userInfo.id, this.userInfo.name, `[${this.templateName}] 🔄 Token expired mid-batch. Keeping progress and rotating token.`);
+                TokenManager.invalidateToken();
+            },
+            onNoCharges: () => {
+                log(this.userInfo.id, this.userInfo.name, `[${this.templateName}] ⚠️ Prediction mismatch. Server reports no charges. Resyncing cache.`);
+                ChargeCache.forceResync(this.userInfo.id, 0);
+            },
+            onInterrupted: (painted, error) => {
+                log(this.userInfo.id, this.userInfo.name, `[${this.templateName}] ⚠️ Paint interrupted after ${painted} px. Will retry next cycle. (${error?.message || error})`);
+            },
+        });
 
         return total;
     }
