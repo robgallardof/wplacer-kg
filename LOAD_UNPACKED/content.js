@@ -60,13 +60,45 @@ ensureTurnstileBridge();
 (() => {
     const on = (el, evt, fn, opts) => el && el.addEventListener(evt, fn, opts || false);
 
-    const getPort = () => new Promise((resolve) => {
+    const getServerConfig = () => new Promise((resolve) => {
         try {
-            chrome.storage.local.get(['kglacerPort', 'wplacerPort'], (result) => resolve(result?.kglacerPort || result?.wplacerPort || 80));
+            chrome.storage.local.get(['kglacerHost', 'wplacerHost', 'kglacerPort', 'wplacerPort'], (result) => {
+                resolve({
+                    host: result?.kglacerHost || result?.wplacerHost || 'localhost',
+                    port: result?.kglacerPort || result?.wplacerPort || 80
+                });
+            });
         } catch {
-            resolve(80);
+            resolve({ host: 'localhost', port: 80 });
         }
     });
+
+    const getOverlayUrls = async () => {
+        const { host, port } = await getServerConfig();
+        const normalizedHost = host === '127.0.0.1' ? 'localhost' : host;
+        const candidates = Array.from(new Set([
+            normalizedHost,
+            'localhost',
+            '127.0.0.1'
+        ]));
+        return candidates.map((candidate) => `http://${candidate}:${port}`);
+    };
+
+    const findReachableOverlayUrl = async () => {
+        const candidates = await getOverlayUrls();
+
+        for (const base of candidates) {
+            try {
+                const response = await fetch(`${base}/token-needed`, {
+                    method: 'GET',
+                    cache: 'no-store'
+                });
+                if (response.ok) return base;
+            } catch {}
+        }
+
+        return candidates[0] || 'http://localhost:80';
+    };
 
     // Move checkOverlayEnabled to the top level of the closure
     const checkOverlayEnabled = async () => {
@@ -162,8 +194,8 @@ ensureTurnstileBridge();
 
     const createOverlay = async () => {
         if (document.getElementById(OVERLAY_ID)) return;
-        const port = await getPort();
-        const overlayUrl = `http://127.0.0.1:${port}/`;
+        let overlayBaseUrl = await findReachableOverlayUrl();
+        let overlayUrl = `${overlayBaseUrl}/`;
         let reconnectTimer = null;
         let reconnectAttempts = 0;
 
@@ -320,7 +352,9 @@ ensureTurnstileBridge();
             reconnectTimer = setInterval(retryIframeLoad, OVERLAY_HEALTHCHECK_MS);
         };
 
-        const handleIframeUnavailable = () => {
+        const handleIframeUnavailable = async () => {
+            overlayBaseUrl = await findReachableOverlayUrl();
+            overlayUrl = `${overlayBaseUrl}/`;
             fallback.style.display = 'flex';
             updateConnectionBadge(statusBadge, 'Offline', false);
             startReconnectLoop();
