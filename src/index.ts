@@ -121,6 +121,104 @@ const TRANSLATIONS = {
         usersHeading: 'User Management',
         templatesHeading: 'Template Operations',
         settingsHeading: 'General Settings',
+        return: 'Return',
+        logsSearchPlaceholder: 'Search text...',
+        showLogsBtn: 'Logs',
+        showErrorsBtn: 'Errors',
+        clearLogsBtn: 'Clear',
+        logsExportBtn: 'Export',
+        logsFilterAll: 'All',
+        logsFilterError: 'Error',
+        logsFilterWarning: 'Warning',
+        logsFilterSuccess: 'Success',
+        logsFilterInfo: 'Info',
+        usersJwtLabel: 'JWT Cookie (j)',
+        usersCfLabel: 'Cloudflare Cookie (_cfuvid) [optional]',
+        submitUser: 'Add User',
+        batchImportTitle: 'Batch import tokens',
+        batchImportDesc: 'Paste one JWT (j) token per line.',
+        batchTokensPlaceholder: 'token1\ntoken2\ntoken3',
+        importBatchTokensBtn: 'Import Batch Tokens',
+        deleteBannedUsersBtn: 'Delete All Banned Accounts',
+        manageUsersTitle: 'Existing Users',
+        chargeSummaryHtml: '<b>Total Charges:</b> <span id="totalCharges">?</span>/<span id="totalMaxCharges">?</span> | <b>Total Droplets:</b> <span id="totalDroplets">?</span> | <b>PPH:</b> <span id="totalPPH">?</span>',
+        checkUserStatus: 'Check Account Status',
+        exportJTokens: 'Export J Tokens',
+        importJTokens: 'Import J Tokens',
+        templateFormTitle: 'Create Template',
+        addTemplateTipHtml: '<b>Tip:</b> For best results, process your image through the <a href="https://pepoafonso.github.io/color_converter_wplace/" target="_blank" rel="noopener noreferrer">wplace color converter</a> first!',
+        convert: 'Convert Image',
+        detailsSizeLabel: 'Size:',
+        detailsChargesLabel: 'Charges needed:',
+        previewCanvasButton: 'Preview Canvas',
+        previewBorderLabel: 'Preview Border:',
+        templateNameLabel: 'Template Name',
+        templateNamePlaceholder: 'Insert a catchy name here',
+        coordinatesLabel: 'Coordinates (Ctrl-V anywhere to paste pin coordinates or a list of 4 numbers)',
+        tileXPlaceholder: 'Tile X',
+        tileYPlaceholder: 'Tile Y',
+        pixelXPlaceholder: 'Pixel X',
+        pixelYPlaceholder: 'Pixel Y',
+        usersLabel: 'Users',
+        selectAllUsers: 'Select All',
+        canBuyMaxChargesLabel: 'Buy Max Charge Upgrades',
+        canBuyChargesLabel: 'Buy Paint Charges',
+        antiGriefModeLabel: 'Enable Anti-Grief Mode',
+        eraseModeLabel: 'Paint Transparent Pixels',
+        templateOutlineModeLabel: 'Enable Outline Mode',
+        templateSkipPaintedPixelsLabel: "Skip Others' Painted Pixels",
+        enableAutostartLabel: 'Enable Autostart',
+        reorderColors: 'Reorder Colors',
+        resetOrder: 'Reset to Default',
+        submitTemplate: 'Add Template',
+        startAll: 'Start All Templates',
+        stopAll: 'Stop All Templates',
+        drawingDirectionLabel: 'Drawing Direction',
+        drawingDirectionWavefront: 'Wavefront (New Recommended)',
+        drawingDirectionNatural: 'Natural (Legacy)',
+        drawingDirectionDown: 'Down (Top to Bottom)',
+        drawingDirectionUp: 'Up (Bottom to Top)',
+        drawingDirectionLeft: 'Left to Right',
+        drawingDirectionRight: 'Right to Left',
+        drawingDirectionSpiralFromCenter: 'Spiral From Center',
+        drawingDirectionSpiralToCenter: 'Spiral To Center',
+        drawingDirectionRandom: 'Random Pixels',
+        drawingOrderLabel: 'Drawing Order',
+        drawingOrderLinear: 'Linear',
+        drawingOrderRandomColor: 'Random Color',
+        drawingOrderColor: 'Color by Color',
+        pixelSkipLabel: 'Drawing Density',
+        pixelSkipEvery: '1/1 (Every Pixel)',
+        accountCooldownLabel: 'Account Turn Cooldown (seconds)',
+        purchaseCooldownLabel: 'Purchase Cooldown (seconds)',
+        maxPixelsPerTurnLabel: 'Max Pixels Per Turn (0 = all available charges)',
+        readyChargeThresholdLabel: 'Start Painting When User Has At Least (charges)',
+        accountCheckCooldownLabel: 'Account Check Cooldown (seconds)',
+        dropletReserveLabel: 'Minimum Droplets Before Buying',
+        antiGriefStandbyLabel: 'Anti-Grief Standby Time (minutes)',
+        chargeThresholdLabel: 'Charge Threshold (%)',
+        proxySettingsHeading: 'Proxy Settings',
+        proxyEnabledLabel: 'Enable Rotating Proxies',
+        proxyInfoHtml: 'Proxies are loaded from the <code>proxies.txt</code> file in your <code>/data</code> folder. Add one proxy per line in the format <code>protocol://user:pass@host:port</code>. You can get high quality proxies at <a href="https://dataimpulse.com/?aff=199137" target="_blank" rel="noopener noreferrer">DataImpulse</a>.',
+        logProxyUsageLabel: 'Log Proxy Connections',
+        proxyRotationModeLabel: 'Rotation Mode',
+        proxyRotationSequential: 'Sequential',
+        proxyRotationRandom: 'Random',
+        reloadProxiesBtn: 'Reload Proxies from File',
+        openWebshareModalBtn: 'Webshare / Camoufox Setup',
+        webshareModalTitle: 'Webshare / Camoufox Proxy Modal',
+        webshareApiKeyLabel: 'API Key',
+        webshareApiKeyPlaceholder: 'Token ...',
+        webshareUsernameLabel: 'Username (optional)',
+        webshareUsernamePlaceholder: 'Webshare username',
+        websharePasswordLabel: 'Password (optional)',
+        websharePasswordPlaceholder: 'Webshare password',
+        saveWebshareConfigBtn: 'Save',
+        testWebshareBtn: 'Test',
+        syncWebshareProxiesBtn: 'Sync Proxy List',
+        closeWebshareModalBtn: 'Close',
+        messageBoxCancel: 'Cancel',
+        messageBoxConfirm: 'OK',
         themeToggleDark: 'Dark Mode',
         themeToggleLight: 'Light Mode',
     },
@@ -139,6 +237,104 @@ const TRANSLATIONS = {
         usersHeading: 'Gestión de Usuarios',
         templatesHeading: 'Operaciones de Plantillas',
         settingsHeading: 'Ajustes Generales',
+        return: 'Volver',
+        logsSearchPlaceholder: 'Buscar texto...',
+        showLogsBtn: 'Logs',
+        showErrorsBtn: 'Errores',
+        clearLogsBtn: 'Limpiar',
+        logsExportBtn: 'Exportar',
+        logsFilterAll: 'Todo',
+        logsFilterError: 'Error',
+        logsFilterWarning: 'Advertencia',
+        logsFilterSuccess: 'Éxito',
+        logsFilterInfo: 'Info',
+        usersJwtLabel: 'Cookie JWT (j)',
+        usersCfLabel: 'Cookie de Cloudflare (_cfuvid) [opcional]',
+        submitUser: 'Agregar Usuario',
+        batchImportTitle: 'Importar tokens en lote',
+        batchImportDesc: 'Pega un token JWT (j) por línea.',
+        batchTokensPlaceholder: 'token1\ntoken2\ntoken3',
+        importBatchTokensBtn: 'Importar Tokens en Lote',
+        deleteBannedUsersBtn: 'Eliminar Todas las Cuentas Baneadas',
+        manageUsersTitle: 'Usuarios Existentes',
+        chargeSummaryHtml: '<b>Cargas Totales:</b> <span id="totalCharges">?</span>/<span id="totalMaxCharges">?</span> | <b>Gotas Totales:</b> <span id="totalDroplets">?</span> | <b>PPH:</b> <span id="totalPPH">?</span>',
+        checkUserStatus: 'Revisar Estado de Cuenta',
+        exportJTokens: 'Exportar Tokens J',
+        importJTokens: 'Importar Tokens J',
+        templateFormTitle: 'Crear Plantilla',
+        addTemplateTipHtml: '<b>Tip:</b> Para mejores resultados, procesa tu imagen con el <a href="https://pepoafonso.github.io/color_converter_wplace/" target="_blank" rel="noopener noreferrer">convertidor de colores de wplace</a> primero.',
+        convert: 'Convertir Imagen',
+        detailsSizeLabel: 'Tamaño:',
+        detailsChargesLabel: 'Cargas necesarias:',
+        previewCanvasButton: 'Previsualizar Lienzo',
+        previewBorderLabel: 'Borde de Vista Previa:',
+        templateNameLabel: 'Nombre de la Plantilla',
+        templateNamePlaceholder: 'Ponle un nombre llamativo',
+        coordinatesLabel: 'Coordenadas (Ctrl-V en cualquier lugar para pegar coordenadas de pin o una lista de 4 números)',
+        tileXPlaceholder: 'Tile X',
+        tileYPlaceholder: 'Tile Y',
+        pixelXPlaceholder: 'Pixel X',
+        pixelYPlaceholder: 'Pixel Y',
+        usersLabel: 'Usuarios',
+        selectAllUsers: 'Seleccionar Todo',
+        canBuyMaxChargesLabel: 'Comprar Mejoras de Carga Máxima',
+        canBuyChargesLabel: 'Comprar Cargas de Pintura',
+        antiGriefModeLabel: 'Activar Modo Anti-Grief',
+        eraseModeLabel: 'Pintar Píxeles Transparentes',
+        templateOutlineModeLabel: 'Activar Modo de Contorno',
+        templateSkipPaintedPixelsLabel: 'Saltar Píxeles Pintados por Otros',
+        enableAutostartLabel: 'Activar Inicio Automático',
+        reorderColors: 'Reordenar Colores',
+        resetOrder: 'Restablecer por Defecto',
+        submitTemplate: 'Agregar Plantilla',
+        startAll: 'Iniciar Todas las Plantillas',
+        stopAll: 'Detener Todas las Plantillas',
+        drawingDirectionLabel: 'Dirección de Dibujo',
+        drawingDirectionWavefront: 'Wavefront (Nueva Recomendada)',
+        drawingDirectionNatural: 'Natural (Legacy)',
+        drawingDirectionDown: 'Abajo (Arriba hacia Abajo)',
+        drawingDirectionUp: 'Arriba (Abajo hacia Arriba)',
+        drawingDirectionLeft: 'Izquierda a Derecha',
+        drawingDirectionRight: 'Derecha a Izquierda',
+        drawingDirectionSpiralFromCenter: 'Espiral desde el Centro',
+        drawingDirectionSpiralToCenter: 'Espiral hacia el Centro',
+        drawingDirectionRandom: 'Píxeles Aleatorios',
+        drawingOrderLabel: 'Orden de Dibujo',
+        drawingOrderLinear: 'Lineal',
+        drawingOrderRandomColor: 'Color Aleatorio',
+        drawingOrderColor: 'Color por Color',
+        pixelSkipLabel: 'Densidad de Dibujo',
+        pixelSkipEvery: '1/1 (Cada Píxel)',
+        accountCooldownLabel: 'Cooldown de Turno de Cuenta (segundos)',
+        purchaseCooldownLabel: 'Cooldown de Compra (segundos)',
+        maxPixelsPerTurnLabel: 'Máx. Píxeles por Turno (0 = todas las cargas disponibles)',
+        readyChargeThresholdLabel: 'Iniciar Pintado Cuando el Usuario Tenga al Menos (cargas)',
+        accountCheckCooldownLabel: 'Cooldown de Revisión de Cuenta (segundos)',
+        dropletReserveLabel: 'Gotas Mínimas Antes de Comprar',
+        antiGriefStandbyLabel: 'Tiempo de Espera Anti-Grief (minutos)',
+        chargeThresholdLabel: 'Umbral de Carga (%)',
+        proxySettingsHeading: 'Configuración de Proxies',
+        proxyEnabledLabel: 'Activar Proxies Rotativos',
+        proxyInfoHtml: 'Los proxies se cargan del archivo <code>proxies.txt</code> en tu carpeta <code>/data</code>. Agrega un proxy por línea con el formato <code>protocol://user:pass@host:port</code>. Puedes conseguir proxies de alta calidad en <a href="https://dataimpulse.com/?aff=199137" target="_blank" rel="noopener noreferrer">DataImpulse</a>.',
+        logProxyUsageLabel: 'Registrar Conexiones de Proxy',
+        proxyRotationModeLabel: 'Modo de Rotación',
+        proxyRotationSequential: 'Secuencial',
+        proxyRotationRandom: 'Aleatorio',
+        reloadProxiesBtn: 'Recargar Proxies desde Archivo',
+        openWebshareModalBtn: 'Configurar Webshare / Camoufox',
+        webshareModalTitle: 'Modal de Proxies Webshare / Camoufox',
+        webshareApiKeyLabel: 'API Key',
+        webshareApiKeyPlaceholder: 'Token ...',
+        webshareUsernameLabel: 'Usuario (opcional)',
+        webshareUsernamePlaceholder: 'Usuario de Webshare',
+        websharePasswordLabel: 'Contraseña (opcional)',
+        websharePasswordPlaceholder: 'Contraseña de Webshare',
+        saveWebshareConfigBtn: 'Guardar',
+        testWebshareBtn: 'Probar',
+        syncWebshareProxiesBtn: 'Sincronizar Lista de Proxies',
+        closeWebshareModalBtn: 'Cerrar',
+        messageBoxCancel: 'Cancelar',
+        messageBoxConfirm: 'OK',
         themeToggleDark: 'Modo Oscuro',
         themeToggleLight: 'Modo Claro',
     },
@@ -154,6 +350,7 @@ const setButtonLabel = (button, text) => {
 
 const applyLanguage = (lang) => {
     const dictionary = TRANSLATIONS[lang] || TRANSLATIONS.en;
+    document.documentElement.lang = lang;
     const byIdText = [
         'appSubtitle',
         'camoufoxSetupTitle',
@@ -175,6 +372,106 @@ const applyLanguage = (lang) => {
     setButtonLabel(openSettings, dictionary.openSettings);
     setButtonLabel(preparePythonEnvMainBtn, dictionary.preparePythonEnvMainBtn);
     setButtonLabel(openWebshareModalMainBtn, dictionary.openWebshareModalMainBtn);
+    setButtonLabel(submitUser, dictionary.submitUser);
+    setButtonLabel(importBatchTokensBtn, dictionary.importBatchTokensBtn);
+    setButtonLabel(deleteBannedUsersBtn, dictionary.deleteBannedUsersBtn);
+    setButtonLabel(checkUserStatus, dictionary.checkUserStatus);
+    setButtonLabel($('exportJTokens'), dictionary.exportJTokens);
+    setButtonLabel($('importJTokens'), dictionary.importJTokens);
+    setButtonLabel(convert, dictionary.convert);
+    setButtonLabel(previewCanvasButton, dictionary.previewCanvasButton);
+    setButtonLabel(selectAllUsers, dictionary.selectAllUsers);
+    setButtonLabel(submitTemplate, dictionary.submitTemplate);
+    setButtonLabel(startAll, dictionary.startAll);
+    setButtonLabel(stopAll, dictionary.stopAll);
+    setButtonLabel(reloadProxiesBtn, dictionary.reloadProxiesBtn);
+    setButtonLabel(openWebshareModalBtn, dictionary.openWebshareModalBtn);
+    setButtonLabel(saveWebshareConfigBtn, dictionary.saveWebshareConfigBtn);
+    setButtonLabel(testWebshareBtn, dictionary.testWebshareBtn);
+    setButtonLabel(syncWebshareProxiesBtn, dictionary.syncWebshareProxiesBtn);
+    setButtonLabel(closeWebshareModalBtn, dictionary.closeWebshareModalBtn);
+
+    document.querySelectorAll('.tab-return-button').forEach((button) => setButtonLabel(button, dictionary.return));
+    logsSearchInput?.setAttribute('placeholder', dictionary.logsSearchPlaceholder);
+    batchTokensInput?.setAttribute('placeholder', dictionary.batchTokensPlaceholder);
+    templateName?.setAttribute('placeholder', dictionary.templateNamePlaceholder);
+    tx?.setAttribute('placeholder', dictionary.tileXPlaceholder);
+    ty?.setAttribute('placeholder', dictionary.tileYPlaceholder);
+    px?.setAttribute('placeholder', dictionary.pixelXPlaceholder);
+    py?.setAttribute('placeholder', dictionary.pixelYPlaceholder);
+    webshareApiKey?.setAttribute('placeholder', dictionary.webshareApiKeyPlaceholder);
+    webshareUsername?.setAttribute('placeholder', dictionary.webshareUsernamePlaceholder);
+    websharePassword?.setAttribute('placeholder', dictionary.websharePasswordPlaceholder);
+
+    $('showLogsBtn').textContent = dictionary.showLogsBtn;
+    $('showErrorsBtn').textContent = dictionary.showErrorsBtn;
+    $('clearLogsBtn').textContent = dictionary.clearLogsBtn;
+    $('logsExportBtn').textContent = dictionary.logsExportBtn;
+    $('logsTypeFilter').options[0].textContent = dictionary.logsFilterAll;
+    $('logsTypeFilter').options[1].textContent = dictionary.logsFilterError;
+    $('logsTypeFilter').options[2].textContent = dictionary.logsFilterWarning;
+    $('logsTypeFilter').options[3].textContent = dictionary.logsFilterSuccess;
+    $('logsTypeFilter').options[4].textContent = dictionary.logsFilterInfo;
+
+    document.querySelector('label[for="jcookie"]').textContent = dictionary.usersJwtLabel;
+    document.querySelector('label[for="scookie"]').textContent = dictionary.usersCfLabel;
+    document.querySelector('#manageUsers .info-box').innerHTML = `<b>${dictionary.batchImportTitle}</b><br>${dictionary.batchImportDesc}`;
+    manageUsersTitle.textContent = dictionary.manageUsersTitle;
+    $('chargeSummary').innerHTML = dictionary.chargeSummaryHtml;
+    templateFormTitle.textContent = dictionary.templateFormTitle;
+    $('addTemplate').querySelector('.info-box').innerHTML = dictionary.addTemplateTipHtml;
+    $('details').children[0].textContent = dictionary.detailsSizeLabel;
+    $('details').children[2].textContent = dictionary.detailsChargesLabel;
+    document.querySelector('label[for="previewBorder"]').textContent = dictionary.previewBorderLabel;
+    document.querySelector('label[for="templateName"]').textContent = dictionary.templateNameLabel;
+    document.querySelector('#templateForm > label:not([for])').textContent = dictionary.coordinatesLabel;
+    document.querySelector('label[for="userSelectList"]').textContent = dictionary.usersLabel;
+    document.querySelector('label[for="canBuyMaxCharges"]').textContent = dictionary.canBuyMaxChargesLabel;
+    document.querySelector('label[for="canBuyCharges"]').textContent = dictionary.canBuyChargesLabel;
+    document.querySelector('label[for="antiGriefMode"]').textContent = dictionary.antiGriefModeLabel;
+    document.querySelector('label[for="eraseMode"]').textContent = dictionary.eraseModeLabel;
+    document.querySelector('label[for="templateOutlineMode"]').textContent = dictionary.templateOutlineModeLabel;
+    document.querySelector('label[for="templateSkipPaintedPixels"]').textContent = dictionary.templateSkipPaintedPixelsLabel;
+    document.querySelector('label[for="enableAutostart"]').textContent = dictionary.enableAutostartLabel;
+    document.querySelector('#templateForm h3').textContent = dictionary.reorderColors;
+    $('templateForm').querySelector('.btn-danger').textContent = dictionary.resetOrder;
+    document.querySelector('label[for="drawingDirectionSelect"]').textContent = dictionary.drawingDirectionLabel;
+    drawingDirectionSelect.options[0].textContent = dictionary.drawingDirectionWavefront;
+    drawingDirectionSelect.options[1].textContent = dictionary.drawingDirectionNatural;
+    drawingDirectionSelect.options[2].textContent = dictionary.drawingDirectionDown;
+    drawingDirectionSelect.options[3].textContent = dictionary.drawingDirectionUp;
+    drawingDirectionSelect.options[4].textContent = dictionary.drawingDirectionLeft;
+    drawingDirectionSelect.options[5].textContent = dictionary.drawingDirectionRight;
+    drawingDirectionSelect.options[6].textContent = dictionary.drawingDirectionSpiralFromCenter;
+    drawingDirectionSelect.options[7].textContent = dictionary.drawingDirectionSpiralToCenter;
+    drawingDirectionSelect.options[8].textContent = dictionary.drawingDirectionRandom;
+    document.querySelector('label[for="drawingOrderSelect"]').textContent = dictionary.drawingOrderLabel;
+    drawingOrderSelect.options[0].textContent = dictionary.drawingOrderLinear;
+    drawingOrderSelect.options[1].textContent = dictionary.drawingOrderRandomColor;
+    drawingOrderSelect.options[2].textContent = dictionary.drawingOrderColor;
+    document.querySelector('label[for="pixelSkipSelect"]').textContent = dictionary.pixelSkipLabel;
+    pixelSkipSelect.options[0].textContent = dictionary.pixelSkipEvery;
+    document.querySelector('label[for="accountCooldown"]').textContent = dictionary.accountCooldownLabel;
+    document.querySelector('label[for="purchaseCooldown"]').textContent = dictionary.purchaseCooldownLabel;
+    document.querySelector('label[for="maxPixelsPerTurn"]').textContent = dictionary.maxPixelsPerTurnLabel;
+    document.querySelector('label[for="readyChargeThreshold"]').textContent = dictionary.readyChargeThresholdLabel;
+    document.querySelector('label[for="accountCheckCooldown"]').textContent = dictionary.accountCheckCooldownLabel;
+    document.querySelector('label[for="dropletReserve"]').textContent = dictionary.dropletReserveLabel;
+    document.querySelector('label[for="antiGriefStandby"]').textContent = dictionary.antiGriefStandbyLabel;
+    document.querySelector('label[for="chargeThreshold"]').textContent = dictionary.chargeThresholdLabel;
+    document.querySelector('#settings .section-title').textContent = dictionary.proxySettingsHeading;
+    document.querySelector('label[for="proxyEnabled"]').textContent = dictionary.proxyEnabledLabel;
+    proxyFormContainer.querySelector('.info-box').innerHTML = dictionary.proxyInfoHtml;
+    document.querySelector('label[for="logProxyUsage"]').textContent = dictionary.logProxyUsageLabel;
+    document.querySelector('label[for="proxyRotationMode"]').textContent = dictionary.proxyRotationModeLabel;
+    proxyRotationMode.options[0].textContent = dictionary.proxyRotationSequential;
+    proxyRotationMode.options[1].textContent = dictionary.proxyRotationRandom;
+    document.querySelector('#webshareModal h3').textContent = dictionary.webshareModalTitle;
+    document.querySelector('label[for="webshareApiKey"]').textContent = dictionary.webshareApiKeyLabel;
+    document.querySelector('label[for="webshareUsername"]').textContent = dictionary.webshareUsernameLabel;
+    document.querySelector('label[for="websharePassword"]').textContent = dictionary.websharePasswordLabel;
+    messageBoxCancel.textContent = dictionary.messageBoxCancel;
+    messageBoxConfirm.textContent = dictionary.messageBoxConfirm;
 
     localStorage.setItem('uiLanguage', lang);
 };
