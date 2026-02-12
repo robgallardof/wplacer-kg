@@ -624,12 +624,64 @@
   var ID_TO_RGB = /* @__PURE__ */ new Map();
   var PALETTE_ENTRIES = [];
   var closestCache = /* @__PURE__ */ new Map();
+  var srgbNonlinearTransformInv = (c) => c > 0.04045 ? ((c + 0.055) / 1.055) ** 2.4 : c / 12.92;
+  var rgbToOklab = (r, g, b) => {
+    const lr = srgbNonlinearTransformInv(r / 255);
+    const lg = srgbNonlinearTransformInv(g / 255);
+    const lb = srgbNonlinearTransformInv(b / 255);
+    const lp = Math.cbrt(0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb);
+    const mp = Math.cbrt(0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb);
+    const sp = Math.cbrt(0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb);
+    const l = 0.2104542553 * lp + 0.793617785 * mp - 0.0040720468 * sp;
+    const aa = 1.9779984951 * lp - 2.428592205 * mp + 0.4505937099 * sp;
+    const bb = 0.0259040371 * lp + 0.7827717662 * mp - 0.808675766 * sp;
+    return [l, aa, bb];
+  };
+  var deltaE2000 = (lab1, lab2) => {
+    const [L1, a1, b1] = lab1;
+    const [L2, a2, b2] = lab2;
+    const rad2deg = (rad) => rad * 180 / Math.PI;
+    const deg2rad = (deg) => deg * Math.PI / 180;
+    const C1 = Math.sqrt(a1 ** 2 + b1 ** 2);
+    const C2 = Math.sqrt(a2 ** 2 + b2 ** 2);
+    const avgC = (C1 + C2) / 2;
+    const G = 0.5 * (1 - Math.sqrt(avgC ** 7 / (avgC ** 7 + 25 ** 7)));
+    const a1p = a1 * (1 + G);
+    const a2p = a2 * (1 + G);
+    const C1p = Math.sqrt(a1p ** 2 + b1 ** 2);
+    const C2p = Math.sqrt(a2p ** 2 + b2 ** 2);
+    const h1p = b1 === 0 && a1p === 0 ? 0 : rad2deg(Math.atan2(b1, a1p)) % 360;
+    const h2p = b2 === 0 && a2p === 0 ? 0 : rad2deg(Math.atan2(b2, a2p)) % 360;
+    const Lp = L2 - L1;
+    const Cp = C2p - C1p;
+    let hp = 0;
+    if (C1p * C2p !== 0) {
+      hp = h2p - h1p;
+      if (hp > 180) hp -= 360;
+      else if (hp < -180) hp += 360;
+    }
+    const Hp = 2 * Math.sqrt(C1p * C2p) * Math.sin(deg2rad(hp) / 2);
+    const avgLp = (L1 + L2) / 2;
+    const avgCp = (C1p + C2p) / 2;
+    let avghp = (h1p + h2p) / 2;
+    if (Math.abs(h1p - h2p) > 180) avghp += 180;
+    const T = 1 - 0.17 * Math.cos(deg2rad(avghp - 30)) + 0.24 * Math.cos(deg2rad(2 * avghp)) + 0.32 * Math.cos(deg2rad(3 * avghp + 6)) - 0.2 * Math.cos(deg2rad(4 * avghp - 63));
+    const SL = 1 + 0.015 * (avgLp - 50) ** 2 / Math.sqrt(20 + (avgLp - 50) ** 2);
+    const SC = 1 + 0.045 * avgCp;
+    const SH = 1 + 0.015 * avgCp * T;
+    const theta = 30 * Math.exp(-(((avghp - 275) / 25) ** 2));
+    const RC = 2 * Math.sqrt(avgCp ** 7 / (avgCp ** 7 + 25 ** 7));
+    const RT = -RC * Math.sin(deg2rad(2 * theta));
+    return Math.sqrt(
+      (Lp / SL) ** 2 + (Cp / SC) ** 2 + (Hp / SH) ** 2 + RT * (Cp / SC) * (Hp / SH)
+    );
+  };
   function buildPaletteCaches() {
     ID_TO_RGB.clear();
     PALETTE_ENTRIES = [];
     for (const [rgbStr, info] of Object.entries(colors)) {
       const [r, g, b] = rgbStr.split(",").map(Number);
-      PALETTE_ENTRIES.push({ r, g, b, id: info.id, rgbStr });
+      PALETTE_ENTRIES.push({ r, g, b, id: info.id, rgbStr, lab: rgbToOklab(r, g, b) });
       ID_TO_RGB.set(info.id, [r, g, b]);
     }
     closestCache.clear();
@@ -658,11 +710,11 @@
     const cached = closestCache.get(color);
     if (cached) return cached;
     const [tr, tg, tb] = color.split(",").map(Number);
+    const targetLab = rgbToOklab(tr, tg, tb);
     let bestKey = PALETTE_ENTRIES.length ? PALETTE_ENTRIES[0].rgbStr : color;
     let best = Infinity;
     for (const p of PALETTE_ENTRIES) {
-      const dr = tr - p.r, dg = tg - p.g, db = tb - p.b;
-      const d = dr * dr + dg * dg + db * db;
+      const d = deltaE2000(targetLab, p.lab);
       if (d < best) {
         best = d;
         bestKey = p.rgbStr;
