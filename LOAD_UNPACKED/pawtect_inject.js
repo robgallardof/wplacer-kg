@@ -1,5 +1,6 @@
 (() => {
   const backend = 'https://backend.wplace.live';
+  const PAWTECT_REQUEST_TYPE = 'WPLACER_PAWTECT_REQUEST';
 
   // Derive extension base URL from this script's src (works in page context)
   const EXT_BASE = (() => {
@@ -32,7 +33,7 @@
     return null;
   };
 
-  const run = async (url, body) => {
+  const run = async (url, body, reqId = null) => {
     try {
       const mod = await importModule();
       if (!mod || typeof mod._ !== 'function') {
@@ -71,7 +72,7 @@
       try { wasm.__wbindgen_free(outPtr, outLen, 1); } catch {}
 
       console.log('x-pawtect-token:', token);
-      try { window.postMessage({ type: 'WPLACER_PAWTECT_TOKEN', token, fp: body.fp || null }, '*'); } catch {}
+      try { window.postMessage({ type: 'WPLACER_PAWTECT_TOKEN', reqId, token, fp: body.fp || null }, '*'); } catch {}
       return token;
     } catch (e) {
       console.error('pawtect run error:', e?.message || e);
@@ -84,6 +85,14 @@
     const body = bodyOverride || { colors: [0,1,2], coords: [10,20,11,21], t: 'REPLACE_T', fp: 'REPLACE_FP' };
     return run(url, body);
   };
+
+  window.addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    const data = event.data;
+    if (!data || data.type !== PAWTECT_REQUEST_TYPE) return;
+    if (typeof data.url !== 'string' || !data.body || typeof data.body !== 'object') return;
+    run(data.url, data.body, data.reqId || null);
+  });
 
   console.log('pawtect helper ready: call window.wplacerRunPawtect(url, body) to generate a token.');
 })();
