@@ -55,6 +55,8 @@
   var pixelSkipSelect = $("pixelSkipSelect");
   var accountCooldown = $("accountCooldown");
   var purchaseCooldown = $("purchaseCooldown");
+  var maxPixelsPerTurn = $("maxPixelsPerTurn");
+  var readyChargeThreshold = $("readyChargeThreshold");
   var accountCheckCooldown = $("accountCheckCooldown");
   var dropletReserve = $("dropletReserve");
   var antiGriefStandby = $("antiGriefStandby");
@@ -1717,6 +1719,8 @@
       await loadAutoLoginProxyStatus();
       accountCooldown.value = currentSettings.accountCooldown / 1e3;
       purchaseCooldown.value = currentSettings.purchaseCooldown / 1e3;
+      maxPixelsPerTurn.value = currentSettings.maxPixelsPerTurn ?? 0;
+      readyChargeThreshold.value = currentSettings.readyChargeThreshold ?? 1;
       accountCheckCooldown.value = currentSettings.accountCheckCooldown / 1e3;
       dropletReserve.value = currentSettings.dropletReserve;
       antiGriefStandby.value = currentSettings.antiGriefStandby / 6e4;
@@ -1832,6 +1836,22 @@
       return;
     }
     saveSetting({ purchaseCooldown: value });
+  });
+  maxPixelsPerTurn.addEventListener("change", () => {
+    const value = parseInt(maxPixelsPerTurn.value, 10);
+    if (isNaN(value) || value < 0) {
+      showMessage("Error", "Please enter a valid non-negative number. Use 0 for unlimited.");
+      return;
+    }
+    saveSetting({ maxPixelsPerTurn: value });
+  });
+  readyChargeThreshold.addEventListener("change", () => {
+    const value = parseInt(readyChargeThreshold.value, 10);
+    if (isNaN(value) || value < 1) {
+      showMessage("Error", "Please enter a number greater than or equal to 1.");
+      return;
+    }
+    saveSetting({ readyChargeThreshold: value });
   });
   accountCheckCooldown.addEventListener("change", () => {
     const value = parseInt(accountCheckCooldown.value, 10) * 1e3;
