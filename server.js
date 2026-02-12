@@ -1230,7 +1230,7 @@ class WPlacer {
         const { total } = await runPaintChunks({
             chunks,
             fingerprint: globalThis.__wplacer_last_fp,
-            executePaint: (tx, ty, body) => this._executePaint(tx, ty, body),
+            executePaint: (tx, ty, body) => this._executePaint(tx, ty, { ...body, t: this.token }),
             onTokenRefresh: () => {
                 log(this.userInfo.id, this.userInfo.name, `[${this.templateName}] 🔄 Token expired mid-batch. Keeping progress and rotating token.`);
                 TokenManager.invalidateToken();
