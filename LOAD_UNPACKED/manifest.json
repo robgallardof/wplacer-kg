@@ -15,8 +15,8 @@
     "http://127.0.0.1/*",
     "http://[::1]/*",
     "http://localhost/*",
-    "https://backend.wplace.live/",
-    "https://wplace.live/"
+    "https://backend.wplace.live/*",
+    "https://wplace.live/*"
   ],
   "action": {
     "default_popup": "popup.html",

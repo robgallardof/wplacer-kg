@@ -96,7 +96,7 @@ async def launch_user(user, extension_path: Path, stop_evt: asyncio.Event):
         await context.add_cookies(cookies)
 
     page = await context.new_page()
-    await page.goto("https://backend.wplace.live/", wait_until="domcontentloaded")
+    await page.goto("https://backend.wplace.live/me", wait_until="domcontentloaded")
     await page.goto("https://wplace.live/", wait_until="domcontentloaded")
 
     try:

@@ -334,7 +334,7 @@ async def login_once(email, password, recovery_email=None, proxy=None):
             # OPTIMIZATION: If session was loaded, try to see if we're already logged in.
             if context_options:
                 print(f"[{email}] 4a. Checking if loaded session is still valid...")
-                await page.goto("https://backend.wplace.live/", wait_until="domcontentloaded")
+                await page.goto("https://backend.wplace.live/me", wait_until="domcontentloaded")
                 # Check for the 'j' cookie immediately
                 j_cookie = await poll_cookie_in_context(context, name="j", timeout_s=10)
                 if j_cookie:
