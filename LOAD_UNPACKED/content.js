@@ -160,12 +160,26 @@ ensurePawtectBridge();
     const getOverlayUrls = async () => {
         const { host, port } = await getServerConfig();
         const normalizedHost = host === '127.0.0.1' ? 'localhost' : host;
-        const candidates = Array.from(new Set([
+        const candidateHosts = Array.from(new Set([
             normalizedHost,
             'localhost',
             '127.0.0.1'
         ]));
-        return candidates.map((candidate) => `http://${candidate}:${port}`);
+        const candidatePorts = Array.from(new Set([
+            Number(port) || 80,
+            80,
+            3000,
+            8080,
+            5000
+        ]));
+
+        const urls = [];
+        for (const candidate of candidateHosts) {
+            for (const candidatePort of candidatePorts) {
+                urls.push(`http://${candidate}:${candidatePort}`);
+            }
+        }
+        return urls;
     };
 
     const findReachableOverlayUrl = async () => {
