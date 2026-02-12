@@ -215,7 +215,7 @@
           }, 30000);
 
           // Render the widget
-          this._turnstileWidgetId = window.turnstile.render(container, {
+          const renderOptions = {
             sitekey: sitekey,
             callback: (token) => {
               clearTimeout(timeoutId);
@@ -240,7 +240,18 @@
             theme: 'light',
             language: 'en',
             appearance: 'interaction-only'
-          });
+          };
+
+          try {
+            // Newer Turnstile API prefers a single init object with container.
+            this._turnstileWidgetId = window.turnstile.render({
+              container,
+              ...renderOptions
+            });
+          } catch (renderErr) {
+            // Fallback for older API signatures.
+            this._turnstileWidgetId = window.turnstile.render(container, renderOptions);
+          }
         });
       } catch (e) {
         console.error('wplacer: Error generating token:', e);
