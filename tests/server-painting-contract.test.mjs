@@ -29,7 +29,35 @@ test('mid-batch token refresh keeps progress and rotates token', () => {
         /Token expired mid-batch\. Keeping progress and rotating token\./,
         'Expected explicit mid-batch refresh handling log'
     );
-    assert.match(serverSource, /TokenManager\.invalidateToken\(\);/, 'Expected token invalidation when refresh is required');
+    assert.match(serverSource, /TokenManager\.invalidateToken\(/, 'Expected token invalidation when refresh is required');
+    assert.match(
+        serverSource,
+        /if \(status === 'token_refresh' && total === 0\) \{\s*throw new Error\('REFRESH_TOKEN'\);\s*\}/,
+        'Expected paint turn to retry immediately when token refresh happens before any progress'
+    );
+    assert.match(
+        serverSource,
+        /TokenManager\.invalidateToken\('mid-batch refresh from pixel endpoint'\);/,
+        'Expected token cache invalidation on mid-batch refresh'
+    );
+    assert.match(
+        serverSource,
+        /refreshRetries >= 5/,
+        'Expected refresh retry guard to avoid infinite refresh loops'
+    );
+});
+
+test('no-op paint turns are explicitly logged and resynced when predicted charges are zero', () => {
+    assert.match(
+        serverSource,
+        /No paintable pixels selected this turn \(charges=\$\{chargesNow\}\)\. Refreshing charge cache\./,
+        'Expected explicit log for no-op turn caused by empty charge budget'
+    );
+    assert.match(
+        serverSource,
+        /ChargeCache\.forceResync\(this\.userInfo\.id, 0\);/,
+        'Expected charge cache resync when no pixels can be selected for a turn'
+    );
 });
 
 test('paint requests include turnstile token in the payload', () => {
