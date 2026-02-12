@@ -13,7 +13,7 @@ KGlacer is a maintained fork focused on performance and multi-account workflow i
 
 -   **Simple and easy-to-use web UI:** For managing users and templates
 -   **Advanced Multi-Account System:** Run templates with multiple users simultaneously. The system intelligently prioritizes users with the most charges available to maximize efficiency.
--   **Multiple Drawing Modes:** Choose from several drawing strategies (Top to Bottom, Bottom to Top, Edges First, Color-By-Color, etc.) to optimize your approach for different templates.
+-   **Adaptive Wavefront Painting (New Default):** The painter now prioritizes frontier pixels, minimizes movement jumps, and keeps tile/color strokes compact for a faster and more human-like fill path while keeping legacy directions available.
 -   **Automatic Upgrade Purchasing:** If enabled, the bot will automatically purchase max charge upgrades or extra charges when running out for your accounts whenever they have enough droplets.
 -   **Account Status Checker:** A tool in the "Manage Users" tab allows you to quickly check if your accounts' cookies are still valid.
 -   **Advanced Template Controls:** Options such as restarting, replacing a template's image, or pausing on the fly make management more flexible as well as providing you with real time updates on the template's status.
