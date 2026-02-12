@@ -7,9 +7,10 @@
   "license": "AGPL-3.0-only",
   "funding": "https://ko-fi.com/jinxthecat and https://ko-fi.com/luluwaffless",
   "scripts": {
-    "start": "node --env-file=.env .",
+    "start": "npm run test && node --env-file=.env .",
     "build:ui": "esbuild src/index.ts --bundle --format=iife --outfile=public/scripts/index.js",
-    "typecheck:ui": "tsc --noEmit --project tsconfig.json"
+    "typecheck:ui": "tsc --noEmit --project tsconfig.json",
+    "test": "node scripts/prestart-tests.mjs"
   },
   "dependencies": {
     "canvas": "^3.2.0",
