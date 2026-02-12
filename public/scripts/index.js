@@ -1666,7 +1666,9 @@
         const currentLevelEl = userEl.querySelector(".user-stats b:nth-of-type(3)");
         const dropletsEl = userEl.querySelector(".user-stats b:nth-of-type(4)");
         const levelProgressEl = userEl.querySelector(".level-progress");
-        if (status && status.success && status.data.ban.status == false) {
+        const banData = status?.data?.ban;
+        const isBanned = typeof banData === "boolean" ? banData : Boolean(banData?.status);
+        if (status && status.success && !isBanned) {
           const userInfo = status.data;
           const charges = Math.floor(userInfo.charges.count);
           const max = userInfo.charges.max;
