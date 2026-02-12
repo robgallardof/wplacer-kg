@@ -1221,7 +1221,8 @@ class WPlacer {
 
         const parsedCharges = ChargeCache._extractFromUserInfo(this.userInfo);
         const chargesNow = parsedCharges.count;
-        const todo = mismatched.slice(0, chargesNow);
+        const pixelsThisTurn = capTurnPixels(chargesNow);
+        const todo = mismatched.slice(0, pixelsThisTurn);
 
         // Keep paint payloads bounded to avoid oversized requests and improve reliability.
         const chunks = buildPaintChunks(todo, MAX_PIXELS_PER_REQUEST);
@@ -1479,6 +1480,8 @@ const saveTemplates = saveTemplatesCompressed;
 let currentSettings = {
     accountCooldown: 20_000,
     purchaseCooldown: 5_000,
+    maxPixelsPerTurn: 0,
+    readyChargeThreshold: 1,
     keepAliveCooldown: MS.ONE_HOUR,
     dropletReserve: 0,
     antiGriefStandby: 600_000,
@@ -1503,6 +1506,24 @@ if (existsSync(SETTINGS_FILE)) {
     }
 }
 const saveSettings = () => saveJSON(SETTINGS_FILE, currentSettings);
+
+const getReadyChargeThreshold = (predictedMax) => {
+    const maxSafe = Math.max(1, Number.parseInt(predictedMax, 10) || 1);
+    const absolute = Number.parseInt(currentSettings.readyChargeThreshold, 10);
+    if (Number.isFinite(absolute) && absolute > 0) {
+        return Math.min(maxSafe, absolute);
+    }
+
+    // Backward compatibility for older settings files that only define a percentage threshold.
+    return Math.max(1, Math.floor(maxSafe * (Number(currentSettings.chargeThreshold) || 0.5)));
+};
+
+const capTurnPixels = (availableCharges) => {
+    const charges = Math.max(0, Math.floor(Number(availableCharges) || 0));
+    const configured = Number.parseInt(currentSettings.maxPixelsPerTurn, 10);
+    if (!Number.isFinite(configured) || configured <= 0) return charges;
+    return Math.min(charges, configured);
+};
 
 // ---------- Server state ----------
 
@@ -1919,7 +1940,7 @@ class TemplateManager {
                                 const predicted = ChargeCache.predict(userId, now);
                                 if (!predicted) continue;
 
-                                const threshold = Math.max(1, Math.floor(predicted.max * currentSettings.chargeThreshold));
+                                const threshold = getReadyChargeThreshold(predicted.max);
                                 let potentialCharges = predicted.count;
 
                                 // Factor in purchasable charges
@@ -1985,7 +2006,7 @@ class TemplateManager {
                                 const cooldowns = this.userQueue.map(id => {
                                     const p = ChargeCache.predict(id, now);
                                     if (!p || p.count >= p.max) return Infinity;
-                                    const th = Math.max(1, Math.floor(p.max * currentSettings.chargeThreshold));
+                                    const th = getReadyChargeThreshold(p.max);
 
                                     if (p.count >= th) {
                                         return Math.max(0, (p.max - p.count)) * (p.cooldownMs ?? 30_000);
@@ -2670,8 +2691,20 @@ app.get('/settings', (_req, res) => res.json({ ...currentSettings, proxyCount: l
 app.put('/settings', (req, res) => {
     const prev = { ...currentSettings };
     currentSettings = { ...prev, ...req.body };
+
+    currentSettings.accountCooldown = Math.max(0, Number.parseInt(currentSettings.accountCooldown, 10) || 0);
+    currentSettings.purchaseCooldown = Math.max(0, Number.parseInt(currentSettings.purchaseCooldown, 10) || 0);
+    currentSettings.readyChargeThreshold = Math.max(1, Number.parseInt(currentSettings.readyChargeThreshold, 10) || 1);
+    currentSettings.maxPixelsPerTurn = Math.max(0, Number.parseInt(currentSettings.maxPixelsPerTurn, 10) || 0);
+
     saveSettings();
-    if (prev.chargeThreshold !== currentSettings.chargeThreshold) {
+
+    const schedulingChanged = (
+        prev.chargeThreshold !== currentSettings.chargeThreshold
+        || prev.readyChargeThreshold !== currentSettings.readyChargeThreshold
+        || prev.maxPixelsPerTurn !== currentSettings.maxPixelsPerTurn
+    );
+    if (schedulingChanged) {
         for (const id in templates) if (templates[id].running) templates[id].interruptSleep();
     }
     res.sendStatus(HTTP_STATUS.OK);

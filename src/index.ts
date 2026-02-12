@@ -54,6 +54,8 @@ const drawingOrderSelect = $('drawingOrderSelect');
 const pixelSkipSelect = $('pixelSkipSelect');
 const accountCooldown = $('accountCooldown');
 const purchaseCooldown = $('purchaseCooldown');
+const maxPixelsPerTurn = $('maxPixelsPerTurn');
+const readyChargeThreshold = $('readyChargeThreshold');
 const accountCheckCooldown = $('accountCheckCooldown');
 const dropletReserve = $('dropletReserve');
 const antiGriefStandby = $('antiGriefStandby');
@@ -2003,6 +2005,8 @@ openSettings.addEventListener('click', async () => {
 
         accountCooldown.value = currentSettings.accountCooldown / 1000;
         purchaseCooldown.value = currentSettings.purchaseCooldown / 1000;
+        maxPixelsPerTurn.value = currentSettings.maxPixelsPerTurn ?? 0;
+        readyChargeThreshold.value = currentSettings.readyChargeThreshold ?? 1;
         accountCheckCooldown.value = currentSettings.accountCheckCooldown / 1000;
         dropletReserve.value = currentSettings.dropletReserve;
         antiGriefStandby.value = currentSettings.antiGriefStandby / 60000;
@@ -2134,6 +2138,24 @@ purchaseCooldown.addEventListener('change', () => {
         return;
     }
     saveSetting({ purchaseCooldown: value });
+});
+
+maxPixelsPerTurn.addEventListener('change', () => {
+    const value = parseInt(maxPixelsPerTurn.value, 10);
+    if (isNaN(value) || value < 0) {
+        showMessage('Error', 'Please enter a valid non-negative number. Use 0 for unlimited.');
+        return;
+    }
+    saveSetting({ maxPixelsPerTurn: value });
+});
+
+readyChargeThreshold.addEventListener('change', () => {
+    const value = parseInt(readyChargeThreshold.value, 10);
+    if (isNaN(value) || value < 1) {
+        showMessage('Error', 'Please enter a number greater than or equal to 1.');
+        return;
+    }
+    saveSetting({ readyChargeThreshold: value });
 });
 
 accountCheckCooldown.addEventListener('change', () => {
