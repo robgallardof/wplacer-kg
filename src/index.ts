@@ -1739,7 +1739,14 @@ openManageUsers.addEventListener('click', () => {
     loadUsers((users) => {
         const userCount = Object.keys(users).length;
         manageUsersTitle.textContent = `Existing Users (${userCount})`;
-        
+        if (userCount === 0) {
+            totalCharges.textContent = '0';
+            totalMaxCharges.textContent = '0';
+            totalDroplets.textContent = '0';
+            totalPPH.textContent = '0';
+            return;
+        }
+
         // Calculate totals for all users
         let totalChargesCount = 0;
         let totalMaxChargesCount = 0;
@@ -1856,6 +1863,11 @@ openManageUsers.addEventListener('click', () => {
         totalMaxCharges.textContent = totalMaxChargesCount.toFixed(0);
         totalDroplets.textContent = totalDropletsCount.toFixed(0);
         totalPPH.textContent = totalPixelsPerHour.toFixed(1);
+
+        // Trigger live status refresh so totals do not stay as ?/? when cache is missing.
+        setTimeout(() => {
+            if (!checkUserStatus.disabled) checkUserStatus.click();
+        }, 80);
     });
     changeTab('manageUsers');
 });

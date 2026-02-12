@@ -1562,6 +1562,12 @@ const waitForNotBusy = async (id, timeoutMs = 5_000) => {
 };
 const activeTemplateUsers = new Set();
 const templateQueue = [];
+
+const describeTemplateUsers = (manager) => manager.userIds.map((uid) => `${users[uid]?.name || 'Unknown'}(${uid})`).join(', ');
+const describeBusyUsers = (manager) => manager.userIds
+    .filter((uid) => activeTemplateUsers.has(uid))
+    .map((uid) => `${users[uid]?.name || 'Unknown'}(${uid})`)
+    .join(', ');
 let activePaintingTasks = 0;
 
 // ---------- Token manager ----------
@@ -1790,12 +1796,15 @@ class TemplateManager {
     }
 
     async _findWorkingUserAndCheckPixels() {
+        log('SYSTEM', 'wplacer', `[${this.name}] 🔎 User rotation for pixel check: ${this.userQueue.map((id) => users[id]?.name || id).join(' -> ')}`);
         // Iterate through all users in the queue to find one that works.
         for (let i = 0; i < this.userQueue.length; i++) {
             const userId = this.userQueue.shift();
             this.userQueue.push(userId); // Immediately cycle user to the back of the queue.
 
             if (!users[userId] || (users[userId].suspendedUntil && Date.now() < users[userId].suspendedUntil)) {
+                if (!users[userId]) log('SYSTEM', 'wplacer', `[${this.name}] ⚠️ Skipping missing user id ${userId} during check cycle.`);
+                else log('SYSTEM', 'wplacer', `[${this.name}] ⏸️ Skipping suspended user ${users[userId].name} (${userId}).`);
                 continue; // Skip suspended or non-existent users.
             }
 
@@ -1820,9 +1829,11 @@ class TemplateManager {
                 return { wplacer, mismatchedPixels }; // Success
             } catch (error) {
                 logUserError(error, userId, users[userId].name, 'cycle pixel check');
+                log('SYSTEM', 'wplacer', `[${this.name}] ⚠️ User ${users[userId]?.name || userId} failed pixel-check login/load; trying next user.`);
                 // This user failed, loop will continue to the next one.
             }
         }
+        log('SYSTEM', 'wplacer', `[${this.name}] ❌ No users could complete pixel-check cycle. Queue snapshot: ${this.userQueue.join(', ')}`);
         return null; // No working users were found in the entire queue.
     }
 
@@ -1895,6 +1906,7 @@ class TemplateManager {
                 } else {
                     colorsToPaint = [null];
                 }
+                log('SYSTEM', 'wplacer', `[${this.name}] 🎯 Paint plan prepared. drawingOrder=${drawingOrder}, colors=${colorsToPaint.map((c) => c === null ? 'ALL' : (COLOR_NAMES[c] || `ID:${c}`)).join(', ')}.`);
 
                 let needsLongCooldown = false;
 
@@ -1971,6 +1983,7 @@ class TemplateManager {
                                     readyUsers.push({ userId, potentialCharges: Math.min(predicted.max, potentialCharges) });
                                 }
                             }
+                            log('SYSTEM', 'wplacer', `[${this.name}] 👥 Ready users for this pass: ${readyUsers.length > 0 ? readyUsers.map((u) => `${users[u.userId]?.name || u.userId}:${u.potentialCharges}`).join(', ') : 'none'}.`);
 
                             let bestUser = null;
                             if (readyUsers.length > 0) {
@@ -2001,7 +2014,8 @@ class TemplateManager {
                                     if (error.name !== 'SuspensionError') logUserError(error, userId, users[userId].name, 'perform paint turn');
                                 } finally {
                                     activeBrowserUsers.delete(userId);
-                                    this.userQueue.push(this.userQueue.splice(this.userQueue.indexOf(userId), 1)[0]);
+                                    const queueIdx = this.userQueue.indexOf(userId);
+                                    if (queueIdx > -1) this.userQueue.push(this.userQueue.splice(queueIdx, 1)[0]);
                                 }
 
                                 const postPaintCheck = await this._findWorkingUserAndCheckPixels();
@@ -2010,7 +2024,11 @@ class TemplateManager {
                                     if (remainingPassPixels.length === 0) {
                                         log('SYSTEM', 'wplacer', `[${this.name}] ✅ Pass (${passIndex + 1}/${passSkips.length}) complete.`);
                                         passComplete = true;
+                                    } else {
+                                        log('SYSTEM', 'wplacer', `[${this.name}] 🔁 Pass (${passIndex + 1}/${passSkips.length}) still has ${remainingPassPixels.length} pixels pending for ${color === null ? 'all colors' : (COLOR_NAMES[color] || `ID:${color}`)}.`);
                                     }
+                                } else {
+                                    log('SYSTEM', 'wplacer', `[${this.name}] ⚠️ Post-paint verification failed due to user/login issues. Will retry.`);
                                 }
                                 if (this.running && !passComplete && currentSettings.accountCooldown > 0) {
                                     log('SYSTEM', 'wplacer', `[${this.name}] ⏱️ Waiting for cooldown (${duration(currentSettings.accountCooldown)}).`);
@@ -2054,6 +2072,7 @@ class TemplateManager {
             activePaintingTasks--;
             if (this.status !== 'Finished.') this.status = 'Stopped.';
             this.userIds.forEach((id) => activeTemplateUsers.delete(id));
+            log('SYSTEM', 'wplacer', `[${this.name}] 🧹 Template loop finished. running=${this.running}, status="${this.status}". Releasing users: ${describeTemplateUsers(this)}.`);
             refreshCamoufoxFleetForActiveTemplates().catch((e) => log('SYSTEM', 'Camoufox', 'Error refreshing fleet after template finish', e));
             processQueue();
         }
@@ -2154,10 +2173,16 @@ const autostartedTemplates = [];
 // ---------- Queue processor ----------
 
 const processQueue = () => {
+    if (templateQueue.length === 0) {
+        log('SYSTEM', 'wplacer', '[Queue] processQueue called with an empty queue.');
+        return;
+    }
+    log('SYSTEM', 'wplacer', `[Queue] Processing ${templateQueue.length} queued template(s): ${templateQueue.join(', ')}`);
     for (let i = 0; i < templateQueue.length; i++) {
         const templateId = templateQueue[i];
         const manager = templates[templateId];
         if (!manager) {
+            log('SYSTEM', 'wplacer', `[Queue] Removing template ${templateId} from queue because it no longer exists.`);
             templateQueue.splice(i, 1);
             i--;
             continue;
@@ -2166,9 +2191,12 @@ const processQueue = () => {
         if (!busy) {
             templateQueue.splice(i, 1);
             manager.userIds.forEach((id) => activeTemplateUsers.add(id));
+            log('SYSTEM', 'wplacer', `[Queue] Starting queued template "${manager.name}" (${templateId}) with users: ${describeTemplateUsers(manager)}.`);
             refreshCamoufoxFleetForActiveTemplates().catch((e) => log('SYSTEM', 'Camoufox', 'Error refreshing fleet for queued template', e));
             manager.start().catch((e) => log(templateId, manager.masterName, 'Error starting queued template', e));
             break;
+        } else {
+            log('SYSTEM', 'wplacer', `[Queue] Template "${manager.name}" (${templateId}) still blocked by active users: ${describeBusyUsers(manager)}.`);
         }
     }
 };
@@ -2290,31 +2318,53 @@ app.get('/errors', (req, res) => {
 });
 
 app.get('/token-needed', (_req, res) => res.json({ needed: TokenManager.isTokenNeeded }));
+app.get('/bridge/config', (_req, res) => res.json({
+    primaryPort: APP_PRIMARY_PORT,
+    fallbackPorts: APP_FALLBACK_PORTS,
+    host: APP_HOST,
+}));
+
+const normalizeBridgeTokenPayload = (body = {}) => {
+    const candidate = body?.t ?? body?.token ?? body?.turnstileToken ?? body?.turnstile ?? body?.data?.t ?? body?.data?.token ?? null;
+    const pawtect = body?.pawtect ?? body?.pawtectToken ?? body?.data?.pawtect ?? null;
+    const fp = body?.fp ?? body?.fingerprint ?? body?.data?.fp ?? null;
+    return {
+        t: typeof candidate === 'string' ? candidate : null,
+        pawtect: typeof pawtect === 'string' ? pawtect : null,
+        fp: typeof fp === 'string' ? fp : null,
+    };
+};
 app.post('/t', (req, res) => {
-    const { t, pawtect, fp } = req.body || {};
-    if (!t) return res.sendStatus(HTTP_STATUS.BAD_REQ);
-    // Store Turnstile token as usual
+    const { t, pawtect, fp } = normalizeBridgeTokenPayload(req.body || {});
+    if (!t) {
+        log('SYSTEM', 'wplacer', `[TokenBridge] Rejected token payload on /t. Keys: ${Object.keys(req.body || {}).join(', ') || 'none'}.`);
+        return res.status(HTTP_STATUS.BAD_REQ).json({ error: 'Missing turnstile token field (expected t/token).' });
+    }
+
     TokenManager.setToken(t);
-    // Also keep latest pawtect in memory for pairing with paints
     try {
-        if (pawtect && typeof pawtect === 'string') {
-            globalThis.__wplacer_last_pawtect = pawtect;
-        }
-        if (fp && typeof fp === 'string') {
-            globalThis.__wplacer_last_fp = fp;
-        }
+        if (pawtect) globalThis.__wplacer_last_pawtect = pawtect;
+        if (fp) globalThis.__wplacer_last_fp = fp;
     } catch {}
-    res.sendStatus(HTTP_STATUS.OK);
+
+    log('SYSTEM', 'wplacer', `[TokenBridge] Accepted token on /t (len=${t.length}, pawtect=${pawtect ? 'yes' : 'no'}, fp=${fp ? 'yes' : 'no'}).`);
+    res.status(HTTP_STATUS.OK).json({ ok: true });
 });
 app.post('/token', (req, res) => {
-    const { t, pawtect, fp } = req.body || {};
-    if (!t) return res.sendStatus(HTTP_STATUS.BAD_REQ);
+    const { t, pawtect, fp } = normalizeBridgeTokenPayload(req.body || {});
+    if (!t) {
+        log('SYSTEM', 'wplacer', `[TokenBridge] Rejected token payload on /token. Keys: ${Object.keys(req.body || {}).join(', ') || 'none'}.`);
+        return res.status(HTTP_STATUS.BAD_REQ).json({ error: 'Missing turnstile token field (expected t/token).' });
+    }
+
     TokenManager.setToken(t);
     try {
-        if (pawtect && typeof pawtect === 'string') globalThis.__wplacer_last_pawtect = pawtect;
-        if (fp && typeof fp === 'string') globalThis.__wplacer_last_fp = fp;
+        if (pawtect) globalThis.__wplacer_last_pawtect = pawtect;
+        if (fp) globalThis.__wplacer_last_fp = fp;
     } catch {}
-    res.sendStatus(HTTP_STATUS.OK);
+
+    log('SYSTEM', 'wplacer', `[TokenBridge] Accepted token on /token (len=${t.length}, pawtect=${pawtect ? 'yes' : 'no'}, fp=${fp ? 'yes' : 'no'}).`);
+    res.status(HTTP_STATUS.OK).json({ ok: true });
 });
 
 
@@ -2673,6 +2723,8 @@ app.put('/template/:id', (req, res) => {
     if (!id || !templates[id]) return res.sendStatus(HTTP_STATUS.BAD_REQ);
     const manager = templates[id];
 
+    log('SYSTEM', 'wplacer', `[API] Template toggle requested for "${manager.name}" (${id}). running=${Boolean(req.body.running)} currentRunning=${manager.running}. queueSize=${templateQueue.length}.`);
+
     if (req.body.running && !manager.running) {
         // STARTING a template
         const busy = manager.userIds.some((uid) => activeTemplateUsers.has(uid));
@@ -2680,10 +2732,14 @@ app.put('/template/:id', (req, res) => {
             if (!templateQueue.includes(id)) {
                 templateQueue.push(id);
                 manager.status = 'Queued';
-                log('SYSTEM', 'wplacer', `[${manager.name}] ⏳ Template queued as its users are busy.`);
+                log('SYSTEM', 'wplacer', `[${manager.name}] ⏳ Template queued as its users are busy. Busy users: ${describeBusyUsers(manager)}.`);
+                log('SYSTEM', 'wplacer', `[Queue] Queue is now: ${templateQueue.join(', ')}`);
+            } else {
+                log('SYSTEM', 'wplacer', `[${manager.name}] ℹ️ Start requested but template is already queued. Queue: ${templateQueue.join(', ')}`);
             }
         } else {
             manager.userIds.forEach((uid) => activeTemplateUsers.add(uid));
+            log('SYSTEM', 'wplacer', `[${manager.name}] ▶️ Starting immediately. Reserved users: ${describeTemplateUsers(manager)}.`);
             refreshCamoufoxFleetForActiveTemplates().catch((e) => log('SYSTEM', 'Camoufox', 'Error refreshing fleet on start', e));
             manager.start().catch((e) => log(id, manager.masterName, 'Error starting template', e));
         }
@@ -2692,11 +2748,17 @@ app.put('/template/:id', (req, res) => {
         log('SYSTEM', 'wplacer', `[${manager.name}] 🛑 Template stopped by user.`);
         manager.running = false;
         const idx = templateQueue.indexOf(id);
-        if (idx > -1) templateQueue.splice(idx, 1);
+        if (idx > -1) {
+            templateQueue.splice(idx, 1);
+            log('SYSTEM', 'wplacer', `[Queue] Removed "${manager.name}" (${id}) from queue on stop.`);
+        }
 
         manager.userIds.forEach((uid) => activeTemplateUsers.delete(uid));
+        log('SYSTEM', 'wplacer', `[${manager.name}] 🔓 Released users on stop: ${describeTemplateUsers(manager)}.`);
         refreshCamoufoxFleetForActiveTemplates().catch((e) => log('SYSTEM', 'Camoufox', 'Error refreshing fleet on stop', e));
         processQueue(); // Always process queue after stopping
+    } else {
+        log('SYSTEM', 'wplacer', `[API] No state transition needed for "${manager.name}" (${id}).`);
     }
     res.sendStatus(HTTP_STATUS.OK);
 });
@@ -3164,6 +3226,7 @@ const diffVer = (v1, v2) => {
                 if (!manager) return;
                 log('SYSTEM', 'wplacer', `[${manager.name}] 🚀 Autostarting template...`);
                 if (manager.antiGriefMode) {
+                    log('SYSTEM', 'wplacer', `[${manager.name}] 🤖 Autostart anti-grief mode enabled; starting immediately.`);
                     refreshCamoufoxFleetForActiveTemplates().catch((e) => log('SYSTEM', 'Camoufox', 'Error refreshing fleet on autostart', e));
                     manager.start().catch((e) => log(id, manager.masterName, 'Error autostarting template', e));
                 } else {
@@ -3172,9 +3235,12 @@ const diffVer = (v1, v2) => {
                         if (!templateQueue.includes(id)) {
                             templateQueue.push(id);
                             manager.status = 'Queued';
+                            log('SYSTEM', 'wplacer', `[${manager.name}] ⏳ Autostart queued; busy users: ${describeBusyUsers(manager)}.`);
+                            log('SYSTEM', 'wplacer', `[Queue] Queue is now: ${templateQueue.join(', ')}`);
                         }
                     } else {
                         manager.userIds.forEach((uid) => activeTemplateUsers.add(uid));
+                        log('SYSTEM', 'wplacer', `[${manager.name}] 🚀 Autostart proceeding with users: ${describeTemplateUsers(manager)}.`);
                         refreshCamoufoxFleetForActiveTemplates().catch((e) => log('SYSTEM', 'Camoufox', 'Error refreshing fleet on autostart', e));
                         manager.start().catch((e) => log(id, manager.masterName, 'Error autostarting template', e));
                     };

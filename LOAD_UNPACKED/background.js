@@ -3,6 +3,7 @@ const TOKEN_WAIT_THRESHOLD_MS = 30000; // 30 seconds threshold for token waiting
 const POLL_ALARM_NAME = 'wplacer-poll';
 const COOKIE_ALARM_NAME = 'wplacer-cookie';
 const POLL_INTERVAL_MS = 30000; // 30 seconds for more responsive polling
+const DEFAULT_BRIDGE_PORTS = [80, 3000, 8080, 5000];
 
 // --- State Variables ---
 let tokenWaitStartTime = null;
@@ -67,16 +68,18 @@ const executeStorageCleanupScript = (tabId) => new Promise((resolve) => {
 
 // --- Core Functions ---
 const getSettings = async () => {
-    const result = await storageGet(['kglacerPort', 'wplacerPort', 'autoReload', 'autoClear']);
-    // Update global settings
+    const result = await storageGet(['kglacerPort', 'wplacerPort', 'kglacerHost', 'wplacerHost', 'autoReload', 'autoClear']);
     autoReloadEnabled = result.autoReload !== undefined ? result.autoReload : true;
     autoClearEnabled = result.autoClear !== undefined ? result.autoClear : true;
-    
-    console.log("kglacer: Settings loaded - Auto-reload:", autoReloadEnabled, "Auto-clear:", autoClearEnabled);
-    
+
+    const configuredPort = Number(result.kglacerPort || result.wplacerPort || 80);
+    const configuredHost = result.kglacerHost || result.wplacerHost || 'localhost';
+
+    console.log("kglacer: Settings loaded - Auto-reload:", autoReloadEnabled, "Auto-clear:", autoClearEnabled, "Host:", configuredHost, "Port:", configuredPort);
+
     return {
-        port: result.kglacerPort || result.wplacerPort || 80,
-        host: result.wplacerHost || 'localhost',
+        port: configuredPort,
+        host: configuredHost,
         autoReload: autoReloadEnabled,
         autoClear: autoClearEnabled
     };
@@ -91,20 +94,32 @@ const getServerUrls = async (path = '') => {
         'localhost',
         '127.0.0.1'
     ]));
+    const candidatePorts = Array.from(new Set([
+        Number(port) || 80,
+        ...DEFAULT_BRIDGE_PORTS
+    ]));
 
-    return candidateHosts.map((candidate) => `http://${candidate}:${port}${path}`);
+    const urls = [];
+    for (const candidate of candidateHosts) {
+        for (const candidatePort of candidatePorts) {
+            urls.push(`http://${candidate}:${candidatePort}${path}`);
+        }
+    }
+    return urls;
 };
 
 const fetchFromLocalServer = async (path, options = {}) => {
     const urls = await getServerUrls(path);
     let lastError = null;
+    const attemptedStatuses = [];
 
     for (const url of urls) {
         try {
             const response = await fetch(url, options);
-            if (response.ok || response.status < 500) {
+            if (response.ok) {
                 return response;
             }
+            attemptedStatuses.push(`${response.status}@${url}`);
             lastError = new Error(`Server responded with status: ${response.status} (${url})`);
         } catch (error) {
             lastError = error;
@@ -112,6 +127,10 @@ const fetchFromLocalServer = async (path, options = {}) => {
         }
     }
 
+    console.error('kglacer: All local server candidates failed for path', path, {
+        statuses: attemptedStatuses,
+        error: lastError?.message || lastError
+    });
     throw lastError || new Error('Could not connect to local server.');
 };
 
